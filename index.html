@@ -380,12 +380,54 @@ window.onload = function() {
     
     <section>
         <h2>Images</h2>
-        <p>Images with different sizes:</p>
+        <p>Images with different sizes (vertical-align: bottom):</p>
         <p>
-            <img src="photo.jpg" alt="A beautiful photo" width="200" height="150">
-            <img src="icon.png" alt="Icon" width="64" height="64">
-            <img alt="Default size">
+            <img src="img/apple_silicon.png" alt="Apple Silicon" width="200" height="150">
+            <img src="img/logo.png" alt="Logo" width="64" height="64">
+            <img src="img/cpu-unit-management.png" alt="CPU Management" width="300" height="200">
         </p>
+        
+        <h3>object-fit Examples</h3>
+        <p>Same image (256x255) in 150x100 boxes with different object-fit values:</p>
+        <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+            <div style="text-align: center;">
+                <img src="img/apple_silicon.png" alt="fill" width="150" height="100" style="object-fit: fill; border: 1px solid #ccc;">
+                <p><small>object-fit: fill</small></p>
+            </div>
+            <div style="text-align: center;">
+                <img src="img/apple_silicon.png" alt="contain" width="150" height="100" style="object-fit: contain; border: 1px solid #ccc; background: #f0f0f0;">
+                <p><small>object-fit: contain</small></p>
+            </div>
+            <div style="text-align: center;">
+                <img src="img/apple_silicon.png" alt="cover" width="150" height="100" style="object-fit: cover; border: 1px solid #ccc;">
+                <p><small>object-fit: cover</small></p>
+            </div>
+            <div style="text-align: center;">
+                <img src="img/apple_silicon.png" alt="none" width="150" height="100" style="object-fit: none; border: 1px solid #ccc;">
+                <p><small>object-fit: none</small></p>
+            </div>
+            <div style="text-align: center;">
+                <img src="img/apple_silicon.png" alt="scale-down" width="150" height="100" style="object-fit: scale-down; border: 1px solid #ccc; background: #f0f0f0;">
+                <p><small>object-fit: scale-down</small></p>
+            </div>
+        </div>
+        
+        <h3>object-position Examples</h3>
+        <p>object-fit: cover with different object-position values:</p>
+        <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+            <div style="text-align: center;">
+                <img src="img/cpu-unit-management.png" alt="top left" width="120" height="80" style="object-fit: cover; object-position: top left; border: 1px solid #ccc;">
+                <p><small>top left</small></p>
+            </div>
+            <div style="text-align: center;">
+                <img src="img/cpu-unit-management.png" alt="center" width="120" height="80" style="object-fit: cover; object-position: center; border: 1px solid #ccc;">
+                <p><small>center</small></p>
+            </div>
+            <div style="text-align: center;">
+                <img src="img/cpu-unit-management.png" alt="bottom right" width="120" height="80" style="object-fit: cover; object-position: bottom right; border: 1px solid #ccc;">
+                <p><small>bottom right</small></p>
+            </div>
+        </div>
     </section>
 
     <hr>

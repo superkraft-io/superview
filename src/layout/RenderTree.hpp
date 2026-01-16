@@ -1030,8 +1030,8 @@ private:
       bool isTextNode = (child->node->type == NodeType::Text);
       bool isInlineContext = isInlineElement || isTextNode;
       
-      if (isInlineContext && isInlineElement) {
-        // Inline content - no margin collapsing
+      if (isInlineContext) {
+        // Inline content (elements or text) - no margin collapsing
         std::vector<size_t> inlineGroup;
         while (i < children.size()) {
           auto &c = children[i];
@@ -1261,6 +1261,63 @@ private:
     }
   }
   
+  // Helper to apply vertical-align adjustments to a line of inline elements
+  void applyVerticalAlign(const std::vector<size_t>& lineIndices, float lineTop, float lineHeight) {
+    for (size_t idx : lineIndices) {
+      auto& child = children[idx];
+      std::string vAlign = child->computedStyle.verticalAlign;
+      float childHeight = child->frame.height;
+      
+      // Calculate the current Y position relative to line top
+      float currentRelY = child->frame.y - lineTop;
+      float desiredRelY = 0.0f;  // Default: top alignment
+      
+      if (vAlign == "baseline" || vAlign == "text-bottom" || vAlign == "bottom") {
+        // Align bottom of element with bottom of line box
+        desiredRelY = lineHeight - childHeight;
+      } else if (vAlign == "middle") {
+        // Align middle of element with middle of line box
+        desiredRelY = (lineHeight - childHeight) / 2.0f;
+      } else if (vAlign == "top" || vAlign == "text-top") {
+        // Align top of element with top of line box
+        desiredRelY = 0.0f;
+      } else if (vAlign == "sub") {
+        // Subscript - lower by 0.2em approximately
+        desiredRelY = lineHeight - childHeight + child->computedStyle.fontSize * 0.2f;
+      } else if (vAlign == "super") {
+        // Superscript - raise by 0.4em approximately
+        desiredRelY = -child->computedStyle.fontSize * 0.4f;
+      }
+      
+      // Calculate the delta we need to move
+      float yDelta = desiredRelY - currentRelY;
+      
+      if (std::abs(yDelta) > 0.01f) {
+        // Adjust frame
+        child->frame.y += yDelta;
+        // Adjust box model positions
+        child->box.content.y += yDelta;
+        // Adjust text lines if any
+        for (auto& textLine : child->textLines) {
+          textLine.y += yDelta;
+        }
+        // For elements with children, adjust their frames too
+        std::function<void(std::shared_ptr<RenderBox>&, float)> adjustChildren;
+        adjustChildren = [&adjustChildren](std::shared_ptr<RenderBox>& box, float offset) {
+          for (auto& c : box->children) {
+            c->frame.y += offset;
+            c->box.content.y += offset;
+            for (auto& tl : c->textLines) {
+              tl.y += offset;
+            }
+            adjustChildren(c, offset);
+          }
+        };
+        adjustChildren(child, yDelta);
+      }
+    }
+  }
+  
   // Helper function to layout a group of inline elements on the same line(s)
   float layoutInlineGroup(const std::vector<size_t> &indices, float x, float y,
                          float width, StyleSheet &styleSheet, MSDFFontManager *fontManager,
@@ -1269,6 +1326,8 @@ private:
     float currentY = y;
     float lineHeight = 20.0f;
     float maxLineHeight = lineHeight;
+    float lineStartY = y;
+    std::vector<size_t> currentLineIndices;  // Track children on current line
     
     for (size_t idx : indices) {
       auto &child = children[idx];
@@ -1278,11 +1337,17 @@ private:
         std::string tag = child->node->tagName;
         std::transform(tag.begin(), tag.end(), tag.begin(), ::tolower);
         if (tag == "br") {
+          // Apply vertical-align to current line before breaking
+          if (!currentLineIndices.empty()) {
+            applyVerticalAlign(currentLineIndices, lineStartY, maxLineHeight);
+            currentLineIndices.clear();
+          }
           // Force line break
           child->frame = {currentX, currentY, 0, maxLineHeight};
           child->box.content = child->frame;
           currentX = x;
           currentY += maxLineHeight;
+          lineStartY = currentY;
           maxLineHeight = lineHeight;
           continue;
         }
@@ -1399,8 +1464,14 @@ private:
         float idealTotal = idealWidth + idealMarginLeft + idealMarginRight + idealBorderLeft + idealBorderRight;
 
         if (currentX > x && currentX + idealTotal > x + width) {
+          // Apply vertical-align to current line before wrapping
+          if (!currentLineIndices.empty()) {
+            applyVerticalAlign(currentLineIndices, lineStartY, maxLineHeight);
+            currentLineIndices.clear();
+          }
           currentX = x;
           currentY += maxLineHeight;
+          lineStartY = currentY;
           maxLineHeight = lineHeight;
         }
 
@@ -1411,8 +1482,14 @@ private:
         
         // If child doesn't fit on this line and we've already placed something, wrap
         if (currentX + childBox.width > x + width && currentX > x) {
+          // Apply vertical-align to current line before wrapping
+          if (!currentLineIndices.empty()) {
+            applyVerticalAlign(currentLineIndices, lineStartY, maxLineHeight);
+            currentLineIndices.clear();
+          }
           currentX = x;
           currentY += maxLineHeight;
+          lineStartY = currentY;
           maxLineHeight = lineHeight;
           
           // Re-layout child on new line
@@ -1423,7 +1500,13 @@ private:
         
         currentX += childBox.width;
         maxLineHeight = std::max(maxLineHeight, childBox.height);
+        currentLineIndices.push_back(idx);  // Track this child for vertical-align
       }
+    }
+    
+    // Apply vertical-align to final line
+    if (!currentLineIndices.empty()) {
+      applyVerticalAlign(currentLineIndices, lineStartY, maxLineHeight);
     }
     
     return (currentY - y) + maxLineHeight;
@@ -1436,18 +1519,27 @@ private:
     float currentY = y;
     float lineHeight = 20.0f;
     float maxLineHeight = lineHeight;
+    float lineStartY = y;
+    std::vector<size_t> currentLineIndices;  // Track children on current line for vertical-align
 
-    for (auto &child : children) {
+    for (size_t childIdx = 0; childIdx < children.size(); ++childIdx) {
+      auto &child = children[childIdx];
       // Handle <br> element - force line break
       if (child->node->type == NodeType::Element) {
         std::string tag = child->node->tagName;
         std::transform(tag.begin(), tag.end(), tag.begin(), ::tolower);
         if (tag == "br") {
+          // Apply vertical-align before line break
+          if (!currentLineIndices.empty()) {
+            applyVerticalAlign(currentLineIndices, lineStartY, maxLineHeight);
+            currentLineIndices.clear();
+          }
           // Force line break
           child->frame = {currentX, currentY, 0, maxLineHeight};
           child->box.content = child->frame;
           currentX = x;
           currentY += maxLineHeight;
+          lineStartY = currentY;
           maxLineHeight = lineHeight;
           continue;
         }
@@ -1562,8 +1654,14 @@ private:
         float idealTotal = idealWidth + idealMarginLeft + idealMarginRight + idealBorderLeft + idealBorderRight;
 
         if (currentX > x && currentX + idealTotal > x + width) {
+          // Apply vertical-align before wrapping
+          if (!currentLineIndices.empty()) {
+            applyVerticalAlign(currentLineIndices, lineStartY, maxLineHeight);
+            currentLineIndices.clear();
+          }
           currentX = x;
           currentY += maxLineHeight;
+          lineStartY = currentY;
           maxLineHeight = lineHeight;
         }
 
@@ -1574,8 +1672,14 @@ private:
 
         // Line break if needed
         if (currentX + childBox.width > x + width && currentX > x) {
+          // Apply vertical-align before wrapping
+          if (!currentLineIndices.empty()) {
+            applyVerticalAlign(currentLineIndices, lineStartY, maxLineHeight);
+            currentLineIndices.clear();
+          }
           currentX = x;
           currentY += maxLineHeight;
+          lineStartY = currentY;
           maxLineHeight = lineHeight;
 
           child->layout(currentX, currentY, width, styleSheet, fontManager,
@@ -1585,7 +1689,13 @@ private:
 
         currentX += childBox.width;
         maxLineHeight = std::max(maxLineHeight, childBox.height);
+        currentLineIndices.push_back(childIdx);  // Track for vertical-align
       }
+    }
+
+    // Apply vertical-align to final line
+    if (!currentLineIndices.empty()) {
+      applyVerticalAlign(currentLineIndices, lineStartY, maxLineHeight);
     }
 
     return (currentY - y) + maxLineHeight;

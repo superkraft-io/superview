@@ -133,6 +133,14 @@ public:
     ListStyleType listStyleType = ListStyleType::None;
     int listItemIndex = 0;  // For ordered lists, the item number
 
+    // Image styling
+    std::string objectFit = "fill";  // fill, contain, cover, none, scale-down
+    std::string objectPosition = "50% 50%";  // x y position (center center by default)
+    std::string imageRendering = "auto";  // auto, pixelated, crisp-edges
+
+    // Vertical alignment for inline elements
+    std::string verticalAlign = "baseline";  // baseline, top, middle, bottom, text-top, text-bottom, sub, super
+
     // Helper to get total padding in pixels
     float getPaddingTop(float parentWidth = 0, float fontSize = 16.0f) const {
       return padding.top.toPx(parentWidth, fontSize);
@@ -717,6 +725,24 @@ private:
       std::string v = CssParser::trim(value);
       if (v == "none" || v == "auto" || v == "text" || v == "all") {
         style.userSelect = v;
+      }
+    } else if (property == "object-fit") {
+      std::string v = CssParser::trim(value);
+      if (v == "fill" || v == "contain" || v == "cover" || v == "none" || v == "scale-down") {
+        style.objectFit = v;
+      }
+    } else if (property == "object-position") {
+      style.objectPosition = CssParser::trim(value);
+    } else if (property == "image-rendering") {
+      std::string v = CssParser::trim(value);
+      if (v == "auto" || v == "pixelated" || v == "crisp-edges" || v == "-webkit-optimize-contrast") {
+        style.imageRendering = v;
+      }
+    } else if (property == "vertical-align") {
+      std::string v = CssParser::trim(value);
+      if (v == "baseline" || v == "top" || v == "middle" || v == "bottom" ||
+          v == "text-top" || v == "text-bottom" || v == "sub" || v == "super") {
+        style.verticalAlign = v;
       }
     }
   }

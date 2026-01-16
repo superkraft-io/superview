@@ -6,6 +6,13 @@
 #include <cmath>
 #include <iostream>
 #include <vector>
+#include <unordered_map>
+#include <string>
+#include <sstream>
+
+// stb_image for loading PNG/JPG images
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb/stb_image.h"
 
 // OpenGL 2.0+ shader function types (not in SDL_opengl.h on Windows)
 #ifdef _WIN32
@@ -28,6 +35,7 @@ typedef void (APIENTRY *PFNGLUNIFORM1FPROC)(GLint location, GLfloat v0);
 typedef void (APIENTRY *PFNGLUNIFORM2FPROC)(GLint location, GLfloat v0, GLfloat v1);
 typedef void (APIENTRY *PFNGLUNIFORM4FPROC)(GLint location, GLfloat v0, GLfloat v1, GLfloat v2, GLfloat v3);
 typedef void (APIENTRY *PFNGLACTIVETEXTUREPROC)(GLenum texture);
+typedef void (APIENTRY *PFNGLGENERATEMIPMAPPROC)(GLenum target);
 
 // Global function pointers (initialized once)
 static PFNGLCREATESHADERPROC glCreateShader = nullptr;
@@ -49,6 +57,7 @@ static PFNGLUNIFORM1FPROC glUniform1f = nullptr;
 static PFNGLUNIFORM2FPROC glUniform2f = nullptr;
 static PFNGLUNIFORM4FPROC glUniform4f = nullptr;
 static PFNGLACTIVETEXTUREPROC glActiveTexture_ptr = nullptr;
+static PFNGLGENERATEMIPMAPPROC glGenerateMipmap = nullptr;
 
 static bool loadGLFunctions() {
   static bool loaded = false;
@@ -73,10 +82,12 @@ static bool loadGLFunctions() {
   glUniform2f = (PFNGLUNIFORM2FPROC)SDL_GL_GetProcAddress("glUniform2f");
   glUniform4f = (PFNGLUNIFORM4FPROC)SDL_GL_GetProcAddress("glUniform4f");
   glActiveTexture_ptr = (PFNGLACTIVETEXTUREPROC)SDL_GL_GetProcAddress("glActiveTexture");
+  glGenerateMipmap = (PFNGLGENERATEMIPMAPPROC)SDL_GL_GetProcAddress("glGenerateMipmap");
   
   loaded = (glCreateShader && glShaderSource && glCompileShader && 
             glGetShaderiv && glCreateProgram && glAttachShader &&
-            glLinkProgram && glUseProgram && glGetUniformLocation);
+            glLinkProgram && glUseProgram && glGetUniformLocation &&
+            glGenerateMipmap);
   
   return loaded;
 }
@@ -124,6 +135,14 @@ class Renderer {
 float msdfEdgeLow = -0.5f;
     float msdfEdgeHigh = 0.42f;
 
+  // Image texture cache
+  struct CachedImage {
+    GLuint textureId = 0;
+    int width = 0;
+    int height = 0;
+  };
+  std::unordered_map<std::string, CachedImage> imageCache;
+
 public:
   Renderer(int w, int h) : screenWidth(w), screenHeight(h) {
     rectBatch.reserve(4096); // Pre-allocate for ~1000 rects
@@ -134,6 +153,13 @@ public:
     if (msdfShaderProgram) {
       glDeleteProgram(msdfShaderProgram);
     }
+    // Clean up image textures
+    for (auto& pair : imageCache) {
+      if (pair.second.textureId) {
+        glDeleteTextures(1, &pair.second.textureId);
+      }
+    }
+    imageCache.clear();
   }
 
   void setOpacity(float opacity) { globalOpacity = opacity; }
@@ -197,6 +223,241 @@ public:
   void endFrame() {
     flushRects();
   }
+
+  // Load an image from file and cache it as OpenGL texture
+  // Returns true if image was loaded successfully (or already cached)
+  bool loadImage(const std::string& path, int* outWidth = nullptr, int* outHeight = nullptr) {
+    // Check if already cached
+    auto it = imageCache.find(path);
+    if (it != imageCache.end()) {
+      if (outWidth) *outWidth = it->second.width;
+      if (outHeight) *outHeight = it->second.height;
+      return it->second.textureId != 0;
+    }
+    
+    // Load image with stb_image
+    int width, height, channels;
+    stbi_set_flip_vertically_on_load(false); // Keep top-left origin for 2D rendering
+    unsigned char* data = stbi_load(path.c_str(), &width, &height, &channels, 4); // Force RGBA
+    
+    if (!data) {
+      std::cerr << "Failed to load image: " << path << " - " << stbi_failure_reason() << std::endl;
+      // Cache empty entry to avoid repeated load attempts
+      imageCache[path] = {0, 0, 0};
+      return false;
+    }
+    
+    // Create OpenGL texture
+    GLuint textureId;
+    glGenTextures(1, &textureId);
+    glBindTexture(GL_TEXTURE_2D, textureId);
+    
+    // Set texture parameters for proper anti-aliasing
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR); // Trilinear filtering
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    
+    // Upload texture data
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+    
+    // Generate mipmaps for better anti-aliasing when scaling
+    glGenerateMipmap(GL_TEXTURE_2D);
+    
+    // Free CPU-side image data
+    stbi_image_free(data);
+    
+    // Cache the texture
+    imageCache[path] = {textureId, width, height};
+    
+    if (outWidth) *outWidth = width;
+    if (outHeight) *outHeight = height;
+    
+    std::cout << "Loaded image: " << path << " (" << width << "x" << height << ")" << std::endl;
+    return true;
+  }
+  
+  // Get cached image dimensions (returns false if not loaded)
+  bool getImageSize(const std::string& path, int* outWidth, int* outHeight) {
+    auto it = imageCache.find(path);
+    if (it != imageCache.end() && it->second.textureId != 0) {
+      if (outWidth) *outWidth = it->second.width;
+      if (outHeight) *outHeight = it->second.height;
+      return true;
+    }
+    return false;
+  }
+  
+  // Draw an image at specified position and size
+  void drawImage(float x, float y, float w, float h, const std::string& path,
+                 const std::string& objectFit = "fill",
+                 const std::string& objectPosition = "50% 50%",
+                 const std::string& imageRendering = "auto") {
+    // Ensure image is loaded
+    if (!loadImage(path)) {
+      // Draw placeholder if image failed to load
+      drawRect(x, y, w, h, 0.9f, 0.9f, 0.9f, 1.0f);
+      return;
+    }
+    
+    auto it = imageCache.find(path);
+    if (it == imageCache.end() || it->second.textureId == 0) return;
+    
+    int imgW = it->second.width;
+    int imgH = it->second.height;
+    
+    // Calculate source and destination rectangles based on object-fit
+    float srcX = 0.0f, srcY = 0.0f, srcW = 1.0f, srcH = 1.0f;  // Texture coords (0-1)
+    float dstX = x, dstY = y, dstW = w, dstH = h;  // Screen coords
+    
+    // Parse object-position (supports: "50% 50%", "center", "top left", "10px 20px", etc.)
+    float posX = 0.5f, posY = 0.5f;  // Default: center
+    parseObjectPosition(objectPosition, posX, posY);
+    
+    float imgAspect = (float)imgW / (float)imgH;
+    float boxAspect = w / h;
+    
+    if (objectFit == "contain") {
+      // Scale to fit entirely within box, maintaining aspect ratio
+      if (imgAspect > boxAspect) {
+        // Image is wider - fit width, center vertically
+        dstW = w;
+        dstH = w / imgAspect;
+        dstY = y + (h - dstH) * posY;
+        dstX = x + (w - dstW) * posX;
+      } else {
+        // Image is taller - fit height, center horizontally
+        dstH = h;
+        dstW = h * imgAspect;
+        dstX = x + (w - dstW) * posX;
+        dstY = y + (h - dstH) * posY;
+      }
+    } else if (objectFit == "cover") {
+      // Scale to cover entire box, cropping as needed
+      if (imgAspect > boxAspect) {
+        // Image is wider - fit height, crop horizontally
+        float scale = h / (float)imgH;
+        float scaledW = imgW * scale;
+        float cropX = (scaledW - w) * posX / scaledW;
+        srcX = cropX;
+        srcW = w / scaledW;
+      } else {
+        // Image is taller - fit width, crop vertically
+        float scale = w / (float)imgW;
+        float scaledH = imgH * scale;
+        float cropY = (scaledH - h) * posY / scaledH;
+        srcY = cropY;
+        srcH = h / scaledH;
+      }
+    } else if (objectFit == "none") {
+      // No scaling, center based on object-position
+      if (imgW > w) {
+        float cropX = ((float)imgW - w) * posX / (float)imgW;
+        srcX = cropX;
+        srcW = w / (float)imgW;
+      } else {
+        dstW = (float)imgW;
+        dstX = x + (w - dstW) * posX;
+      }
+      if (imgH > h) {
+        float cropY = ((float)imgH - h) * posY / (float)imgH;
+        srcY = cropY;
+        srcH = h / (float)imgH;
+      } else {
+        dstH = (float)imgH;
+        dstY = y + (h - dstH) * posY;
+      }
+    } else if (objectFit == "scale-down") {
+      // Like contain, but never scales up
+      if (imgW <= w && imgH <= h) {
+        // Image fits - use none behavior
+        dstW = (float)imgW;
+        dstH = (float)imgH;
+        dstX = x + (w - dstW) * posX;
+        dstY = y + (h - dstH) * posY;
+      } else {
+        // Image too big - use contain behavior
+        if (imgAspect > boxAspect) {
+          dstW = w;
+          dstH = w / imgAspect;
+          dstY = y + (h - dstH) * posY;
+          dstX = x + (w - dstW) * posX;
+        } else {
+          dstH = h;
+          dstW = h * imgAspect;
+          dstX = x + (w - dstW) * posX;
+          dstY = y + (h - dstH) * posY;
+        }
+      }
+    }
+    // else "fill" - default behavior, stretch to fit (srcX/Y/W/H already 0-1)
+    
+    // Flush batched rects before drawing textured quad
+    flushRects();
+    
+    // Enable texturing
+    glEnable(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, it->second.textureId);
+    
+    // Set filtering based on image-rendering
+    if (imageRendering == "pixelated" || imageRendering == "crisp-edges" || 
+        imageRendering == "-webkit-optimize-contrast") {
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    } else {
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    }
+    
+    // Draw textured quad with calculated source/dest rectangles
+    glColor4f(1.0f, 1.0f, 1.0f, globalOpacity);
+    glBegin(GL_QUADS);
+    glTexCoord2f(srcX, srcY);             glVertex2f(dstX, dstY);
+    glTexCoord2f(srcX + srcW, srcY);      glVertex2f(dstX + dstW, dstY);
+    glTexCoord2f(srcX + srcW, srcY + srcH); glVertex2f(dstX + dstW, dstY + dstH);
+    glTexCoord2f(srcX, srcY + srcH);      glVertex2f(dstX, dstY + dstH);
+    glEnd();
+    
+    // Disable texturing for subsequent draws
+    glDisable(GL_TEXTURE_2D);
+  }
+  
+private:
+  // Helper to parse object-position CSS value
+  void parseObjectPosition(const std::string& pos, float& outX, float& outY) {
+    outX = 0.5f;
+    outY = 0.5f;
+    
+    std::string s = pos;
+    // Convert keywords to percentages
+    size_t p;
+    while ((p = s.find("left")) != std::string::npos) s.replace(p, 4, "0%");
+    while ((p = s.find("right")) != std::string::npos) s.replace(p, 5, "100%");
+    while ((p = s.find("top")) != std::string::npos) s.replace(p, 3, "0%");
+    while ((p = s.find("bottom")) != std::string::npos) s.replace(p, 6, "100%");
+    while ((p = s.find("center")) != std::string::npos) s.replace(p, 6, "50%");
+    
+    // Parse two values (x y)
+    std::istringstream iss(s);
+    std::string xStr, yStr;
+    iss >> xStr >> yStr;
+    
+    if (yStr.empty()) yStr = "50%";  // If only one value, y defaults to center
+    
+    auto parseVal = [](const std::string& str) -> float {
+      if (str.empty()) return 0.5f;
+      if (str.back() == '%') {
+        return std::stof(str.substr(0, str.size() - 1)) / 100.0f;
+      }
+      // px or unitless - treat as 0 for simplicity (would need box size for px)
+      return 0.5f;
+    };
+    
+    outX = parseVal(xStr);
+    outY = parseVal(yStr);
+  }
+
+public:
 
   // MSDF text rendering - the only text rendering method
   void drawText(float x, float y, const std::string &text, MSDFFont &font,

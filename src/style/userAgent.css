@@ -162,6 +162,12 @@ ul, ol {
     padding-inline-start: 40px;
 }
 
+/* Nested lists have no top/bottom margins */
+ol ul, ul ol, ul ul, ol ol {
+    margin-block-start: 0;
+    margin-block-end: 0;
+}
+
 li {
     display: block;
 }
@@ -356,6 +362,7 @@ legend {
 
 img {
     display: inline-block;
+    vertical-align: bottom;  /* Chrome aligns images at the bottom of the line box */
 }
 
 iframe {

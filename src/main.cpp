@@ -1386,62 +1386,79 @@ void paint(skene::Renderer &renderer, std::shared_ptr<skene::RenderBox> box,
       }
     }
     
-    // <img> element: render placeholder with icon
+    // <img> element: render actual image or fallback placeholder
     if (tag == "img") {
       skene::Rect content = box->box.content;
       
-      // Draw light gray background
-      renderer.drawRect(content.x, content.y, content.width, content.height,
-                       0.9f, 0.9f, 0.9f, 1.0f);
+      // Get src attribute
+      auto srcAttr = box->node->attributes.find("src");
+      bool imageLoaded = false;
       
-      // Draw border
-      renderer.drawRectOutline(content.x, content.y, content.width, content.height,
-                              0.7f, 0.7f, 0.7f, 1.0f);
-      
-      // Draw image icon (simple mountain/sun icon)
-      float iconSize = std::min(content.width, content.height) * 0.4f;
-      float iconX = content.x + (content.width - iconSize) / 2.0f;
-      float iconY = content.y + (content.height - iconSize) / 2.0f;
-      
-      // Sun (circle in top-right)
-      float sunRadius = iconSize * 0.15f;
-      float sunX = iconX + iconSize * 0.7f;
-      float sunY = iconY + iconSize * 0.25f;
-      renderer.drawRect(sunX - sunRadius, sunY - sunRadius, 
-                       sunRadius * 2, sunRadius * 2,
-                       0.5f, 0.5f, 0.5f, 1.0f);
-      
-      // Mountain (triangle shape - simplified as rectangles)
-      float mtnBaseY = iconY + iconSize * 0.8f;
-      float mtnHeight = iconSize * 0.5f;
-      // Left mountain
-      renderer.drawRect(iconX + iconSize * 0.1f, mtnBaseY - mtnHeight * 0.6f,
-                       iconSize * 0.3f, mtnHeight * 0.6f,
-                       0.5f, 0.5f, 0.5f, 1.0f);
-      // Right mountain (taller)
-      renderer.drawRect(iconX + iconSize * 0.35f, mtnBaseY - mtnHeight,
-                       iconSize * 0.4f, mtnHeight,
-                       0.6f, 0.6f, 0.6f, 1.0f);
-      
-      // Draw alt text or "IMG" if no alt
-      skene::MSDFFont* font = fontManager.getFont("sans-serif", 
-          static_cast<int>(skene::FontWeight::Normal), 
-          static_cast<int>(skene::FontStyle::Normal));
-      if (!font) font = fontManager.getDefaultFont();
-      
-      if (font) {
-        std::string altText = "IMG";
-        auto altAttr = box->node->attributes.find("alt");
-        if (altAttr != box->node->attributes.end() && !altAttr->second.empty()) {
-          altText = altAttr->second;
+      if (srcAttr != box->node->attributes.end() && !srcAttr->second.empty()) {
+        std::string imagePath = srcAttr->second;
+        // Try to load and draw the image with CSS properties
+        imageLoaded = renderer.loadImage(imagePath);
+        if (imageLoaded) {
+          renderer.drawImage(content.x, content.y, content.width, content.height, imagePath,
+                            style.objectFit, style.objectPosition, style.imageRendering);
         }
-        float fontSize = std::min(12.0f, content.height * 0.15f);
-        float textWidth = font->getTextWidth(altText, fontSize);
-        float textX = content.x + (content.width - textWidth) / 2.0f;
-        float textY = content.y + content.height - 4.0f;
+      }
+      
+      // Draw placeholder if image not loaded
+      if (!imageLoaded) {
+        // Draw light gray background
+        renderer.drawRect(content.x, content.y, content.width, content.height,
+                         0.9f, 0.9f, 0.9f, 1.0f);
         
-        renderer.drawText(textX, textY, altText, *font,
-                         0.5f, 0.5f, 0.5f, 1.0f, fontSize);
+        // Draw border
+        renderer.drawRectOutline(content.x, content.y, content.width, content.height,
+                                0.7f, 0.7f, 0.7f, 1.0f);
+        
+        // Draw image icon (simple mountain/sun icon)
+        float iconSize = std::min(content.width, content.height) * 0.4f;
+        float iconX = content.x + (content.width - iconSize) / 2.0f;
+        float iconY = content.y + (content.height - iconSize) / 2.0f;
+        
+        // Sun (circle in top-right)
+        float sunRadius = iconSize * 0.15f;
+        float sunX = iconX + iconSize * 0.7f;
+        float sunY = iconY + iconSize * 0.25f;
+        renderer.drawRect(sunX - sunRadius, sunY - sunRadius, 
+                         sunRadius * 2, sunRadius * 2,
+                         0.5f, 0.5f, 0.5f, 1.0f);
+        
+        // Mountain (triangle shape - simplified as rectangles)
+        float mtnBaseY = iconY + iconSize * 0.8f;
+        float mtnHeight = iconSize * 0.5f;
+        // Left mountain
+        renderer.drawRect(iconX + iconSize * 0.1f, mtnBaseY - mtnHeight * 0.6f,
+                         iconSize * 0.3f, mtnHeight * 0.6f,
+                         0.5f, 0.5f, 0.5f, 1.0f);
+        // Right mountain (taller)
+        renderer.drawRect(iconX + iconSize * 0.35f, mtnBaseY - mtnHeight,
+                         iconSize * 0.4f, mtnHeight,
+                         0.6f, 0.6f, 0.6f, 1.0f);
+        
+        // Draw alt text or "IMG" if no alt
+        skene::MSDFFont* font = fontManager.getFont("sans-serif", 
+            static_cast<int>(skene::FontWeight::Normal), 
+            static_cast<int>(skene::FontStyle::Normal));
+        if (!font) font = fontManager.getDefaultFont();
+        
+        if (font) {
+          std::string altText = "IMG";
+          auto altAttr = box->node->attributes.find("alt");
+          if (altAttr != box->node->attributes.end() && !altAttr->second.empty()) {
+            altText = altAttr->second;
+          }
+          float fontSize = std::min(12.0f, content.height * 0.15f);
+          float textWidth = font->getTextWidth(altText, fontSize);
+          float textX = content.x + (content.width - textWidth) / 2.0f;
+          float textY = content.y + content.height - 4.0f;
+          
+          renderer.drawText(textX, textY, altText, *font,
+                           0.5f, 0.5f, 0.5f, 1.0f, fontSize);
+        }
       }
     }
     
@@ -1637,13 +1654,8 @@ void paint(skene::Renderer &renderer, std::shared_ptr<skene::RenderBox> box,
     renderer.popTranslate(-box->scrollX, -box->scrollY);
   }
 
-  // 7. Clear clipping and draw scrollbars
-  if (hasClipping) {
-    renderer.flushRects();
-    renderer.clearClipRect();
-  }
-  
-  // Draw scrollbar for scrollable elements
+  // 7. Draw scrollbar BEFORE clearing clip rect (so it's not clipped by parent)
+  // The scrollbar should be drawn within our own clip rect, not the parent's
   if (hasScrolling && box->scrollableHeight > 0) {
     float contentX = box->box.content.x;
     float contentY = box->box.content.y;
@@ -1661,6 +1673,12 @@ void paint(skene::Renderer &renderer, std::shared_ptr<skene::RenderBox> box,
     thumbHeight = std::max(thumbHeight, 20.0f);  // Minimum thumb size
     float thumbY = contentY + (box->scrollY / box->maxScrollY()) * (contentH - thumbHeight);
     renderer.drawRect(scrollbarX, thumbY, scrollbarWidth, thumbHeight, 0.5f, 0.5f, 0.5f, 0.8f);
+  }
+
+  // 8. Clear clipping after drawing scrollbar
+  if (hasClipping) {
+    renderer.flushRects();
+    renderer.clearClipRect();
   }
 
   // Reset opacity
