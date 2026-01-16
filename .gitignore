@@ -1,0 +1,12 @@
+# Build directory (CMake generated files, dependencies, and compiled outputs)
+build/
+
+# User-specific Visual Studio settings
+*.vcxproj.user
+
+# Log/debug output files
+debug_out.txt
+stderr.txt
+cmake_log.txt
+
+chrome_stuff/

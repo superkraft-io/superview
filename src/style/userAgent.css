@@ -1,0 +1,464 @@
+/*
+ * Skene Browser Engine - User Agent Stylesheet
+ * 
+ * This defines the default styling for HTML elements.
+ * These styles have the lowest specificity and can be overridden
+ * by author stylesheets (<style> tags) and inline styles.
+ *
+ * Based on Chromium's user agent stylesheet.
+ */
+
+/* ==========================================================================
+   Document Root
+   ========================================================================== */
+
+html {
+    display: block;
+}
+
+body {
+    display: block;
+    margin: 8px;
+}
+
+/* ==========================================================================
+   Block Elements - Sectioning
+   ========================================================================== */
+
+article, aside, footer, header, nav, section {
+    display: block;
+}
+
+main {
+    display: block;
+}
+
+/* ==========================================================================
+   Block Elements - Headings
+   ========================================================================== */
+
+h1 {
+    display: block;
+    font-size: 2em;
+    font-weight: bold;
+    margin-block-start: 0.67em;
+    margin-block-end: 0.67em;
+    line-height: 1.2;
+}
+
+h2 {
+    display: block;
+    font-size: 1.5em;
+    font-weight: bold;
+    margin-block-start: 0.83em;
+    margin-block-end: 0.83em;
+    line-height: 1.2;
+}
+
+h3 {
+    display: block;
+    font-size: 1.17em;
+    font-weight: bold;
+    margin-block-start: 1em;
+    margin-block-end: 1em;
+    line-height: 1.2;
+}
+
+h4 {
+    display: block;
+    font-size: 1em;
+    font-weight: bold;
+    margin-block-start: 1.33em;
+    margin-block-end: 1.33em;
+    line-height: 1.2;
+}
+
+h5 {
+    display: block;
+    font-size: 0.83em;
+    font-weight: bold;
+    margin-block-start: 1.67em;
+    margin-block-end: 1.67em;
+    line-height: 1.2;
+}
+
+h6 {
+    display: block;
+    font-size: 0.67em;
+    font-weight: bold;
+    margin-block-start: 2.33em;
+    margin-block-end: 2.33em;
+    line-height: 1.2;
+}
+
+/* ==========================================================================
+   Block Elements - Grouping Content
+   ========================================================================== */
+
+p {
+    display: block;
+    margin-block-start: 1em;
+    margin-block-end: 1em;
+}
+
+div {
+    display: block;
+}
+
+hr {
+    display: block;
+    margin-block-start: 0.5em;
+    margin-block-end: 0.5em;
+    border-top-width: 1px;
+    border-top-color: #808080;
+    height: 0;
+}
+
+pre {
+    display: block;
+    font-family: "Consolas", "Courier New", monospace;
+    font-size: 13px;
+    margin-block-start: 1em;
+    margin-block-end: 1em;
+    line-height: 1.15;
+    background-color: #f5f5f5;
+    padding: 8px 12px;
+}
+
+blockquote {
+    display: block;
+    margin-block-start: 1em;
+    margin-block-end: 1em;
+    margin-inline-start: 40px;
+    margin-inline-end: 40px;
+    padding-inline-start: 16px;
+    color: #555555;
+    font-style: italic;
+}
+
+figure {
+    display: block;
+    margin-block-start: 1em;
+    margin-block-end: 1em;
+}
+
+figcaption {
+    display: block;
+}
+
+address {
+    display: block;
+    font-style: italic;
+}
+
+/* ==========================================================================
+   Lists
+   ========================================================================== */
+
+ul, ol {
+    display: block;
+    margin-block-start: 1em;
+    margin-block-end: 1em;
+    padding-inline-start: 40px;
+}
+
+li {
+    display: block;
+}
+
+dl {
+    display: block;
+    margin-block-start: 1em;
+    margin-block-end: 1em;
+}
+
+dt {
+    display: block;
+}
+
+dd {
+    display: block;
+    margin-inline-start: 40px;
+}
+
+/* ==========================================================================
+   Inline Text Semantics
+   ========================================================================== */
+
+a {
+    display: inline;
+    color: #0000ee;
+    text-decoration: underline;
+}
+
+strong, b {
+    display: inline;
+    font-weight: bold;
+}
+
+em, i {
+    display: inline;
+    font-style: italic;
+}
+
+u {
+    display: inline;
+    text-decoration: underline;
+}
+
+s, strike, del {
+    display: inline;
+    text-decoration: line-through;
+}
+
+small {
+    display: inline;
+    font-size: 0.83em;
+}
+
+mark {
+    display: inline;
+    background-color: yellow;
+}
+
+code, kbd, samp, tt {
+    display: inline;
+    font-family: monospace;
+    font-size: 13px;
+}
+
+var {
+    display: inline;
+    font-style: italic;
+}
+
+abbr, acronym {
+    display: inline;
+}
+
+cite {
+    display: inline;
+    font-style: italic;
+}
+
+dfn {
+    display: inline;
+    font-style: italic;
+}
+
+q {
+    display: inline;
+}
+
+sub {
+    display: inline;
+    font-size: 0.75em;
+}
+
+sup {
+    display: inline;
+    font-size: 0.75em;
+}
+
+span {
+    display: inline;
+}
+
+br {
+    display: inline;
+}
+
+/* ==========================================================================
+   Forms
+   ========================================================================== */
+
+form {
+    display: block;
+}
+
+label {
+    display: inline;
+    border: none;
+    background: transparent;
+    padding: 0;
+    margin: 0;
+}
+
+button {
+    display: inline-block;
+    background-color: #e6e6e6;
+    border-width: 1px;
+    border-color: #999999;
+    padding: 4px 12px;
+    /*margin-right: 8px;*/
+    border-radius: 3px;
+}
+
+input {
+    display: inline-block;
+    background-color: white;
+    border-width: 1px;
+    border-color: #808080;
+    padding: 2px 4px;
+}
+
+input[type="checkbox"] {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    margin-right: 4px;
+    min-width: 16px;
+    max-width: 16px;
+    background-color: rgba(0, 0, 0, 0);
+    border: none;
+    border-width: 0;
+}
+
+textarea {
+    display: inline-block;
+    font-family: monospace;
+    font-size: 13px;
+    background-color: white;
+    border-width: 1px;
+    border-color: #808080;
+    padding: 2px 4px;
+}
+
+select {
+    display: inline-block;
+    background-color: white;
+    border-width: 1px;
+    border-color: #808080;
+    padding: 2px 4px;
+}
+
+fieldset {
+    display: block;
+    margin-inline-start: 2px;
+    margin-inline-end: 2px;
+    padding-block-start: 0.35em;
+    padding-inline-start: 0.75em;
+    padding-inline-end: 0.75em;
+    padding-block-end: 0.625em;
+    border: 2px groove #c0c0c0;
+}
+
+legend {
+    display: block;
+    padding-inline-start: 2px;
+    padding-inline-end: 2px;
+}
+
+/* ==========================================================================
+   Embedded Content
+   ========================================================================== */
+
+img {
+    display: inline-block;
+}
+
+iframe {
+    display: inline-block;
+    border: 2px inset;
+}
+
+video, audio {
+    display: inline-block;
+}
+
+canvas {
+    display: inline-block;
+}
+
+svg {
+    display: inline-block;
+}
+
+/* ==========================================================================
+   Table Content
+   ========================================================================== */
+
+table {
+    display: table;
+    border-collapse: collapse;
+    border-spacing: 0;
+    margin-block-start: 1em;
+    margin-block-end: 1em;
+    table-layout: fixed;
+}
+
+caption {
+    display: block;
+    text-align: center;
+    margin-bottom: 0.5em;
+}
+
+thead, tbody, tfoot {
+    display: table-row-group;
+}
+
+tr {
+    display: table-row;
+}
+
+td, th {
+    display: table-cell;
+    padding: 2px 4px;
+}
+
+th {
+    font-weight: bold;
+    text-align: center;
+}
+
+/* ==========================================================================
+   Interactive Elements
+   ========================================================================== */
+
+details {
+    display: block;
+}
+
+summary {
+    display: block;
+}
+
+dialog {
+    display: block;
+    position: absolute;
+    background-color: white;
+    border: solid;
+    padding: 1em;
+}
+
+/* ==========================================================================
+   Deprecated / Less Common Elements
+   ========================================================================== */
+
+center {
+    display: block;
+    text-align: center;
+}
+
+font {
+    display: inline;
+}
+
+big {
+    display: inline;
+    font-size: 1.17em;
+}
+
+/* ==========================================================================
+   Scripting
+   ========================================================================== */
+
+noscript {
+    display: inline;
+}
+
+/* Hidden elements */
+head, script, style, link, meta, title {
+    display: none;
+}

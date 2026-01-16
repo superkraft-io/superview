@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+/* Reset and base styles */
+
+h1 {
+    display: block;
+    font-size: 2em;
+    margin-block-start: 0.67em;
+    margin-block-end: 0.67em;
+    margin-inline-start: 0px;
+    margin-inline-end: 0px;
+    font-weight: bold;
+    unicode-bidi: isolate;
+}
+
+h2 {
+    display: block;
+    font-size: 1.5em;
+    margin-block-start: 0.83em;
+    margin-block-end: 0.83em;
+    margin-inline-start: 0px;
+    margin-inline-end: 0px;
+    font-weight: bold;
+    unicode-bidi: isolate;
+}
+
+h3 {
+    display: block;
+    font-size: 1.17em;
+    margin-block-start: 1em;
+    margin-block-end: 1em;
+    margin-inline-start: 0px;
+    margin-inline-end: 0px;
+    font-weight: bold;
+    unicode-bidi: isolate;
+}
+
+h4 {
+    display: block;
+    margin-block-start: 1.33em;
+    margin-block-end: 1.33em;
+    margin-inline-start: 0px;
+    margin-inline-end: 0px;
+    font-weight: bold;
+    unicode-bidi: isolate;
+}
+
+h5 {
+    display: block;
+    font-size: 0.83em;
+    margin-block-start: 1.67em;
+    margin-block-end: 1.67em;
+    margin-inline-start: 0px;
+    margin-inline-end: 0px;
+    font-weight: bold;
+    unicode-bidi: isolate;
+}
+
+body {
+    padding: 20px;
+    background-color: #f5f5f5;
+    font-family: serif;
+}
+
+/* Header styling */
+header {
+    padding: 15px;
+    background-color: #333;
+    margin-bottom: 20px;
+}
+
+h1 {
+    color: white;
+    margin: 0;
+    font-family: sans-serif;
+}
+
+.subtitle {
+    color: #aaa;
+    font-family: sans-serif;
+}
+
+/* Section styling */
+section {
+    padding: 20px;
+    background-color: white;
+    margin-bottom: 15px;
+    border: 2px solid #ddd;
+}
+
+h2 {
+    color: #2196F3;
+    margin-bottom: 10px;
+}
+
+/* Article cards */
+article {
+    padding: 10px;
+    margin-bottom: 10px;
+}
+
+.feature-css {
+    background-color: #e3f2fd;
+}
+
+.feature-text {
+    background-color: #fff3e0;
+}
+
+/* Flexbox container */
+.flex-container {
+    display: flex;
+    gap: 15px;
+    margin-bottom: 15px;
+}
+
+.flex-item {
+    flex-grow: 1;
+    padding: 15px;
+}
+
+.green-box {
+    background-color: #e8f5e9;
+    border: 1px solid #4caf50;
+}
+
+.pink-box {
+    background-color: #fce4ec;
+    border: 1px solid #e91e63;
+}
+
+h4.green-title {
+    color: #4caf50;
+}
+
+h4.pink-title {
+    color: #e91e63;
+}
+
+/* Aside styling */
+aside {
+    padding: 15px;
+    background-color: #fff8e1;
+    border-left: 4px solid #ffc107;
+}
+
+h5 {
+    color: #f57c00;
+}
+
+/* Footer */
+footer {
+    padding: 10px;
+    background-color: #424242;
+    margin-top: 20px;
+}
+
+footer p {
+    color: #9e9e9e;
+    text-align: center;
+}
+
+/* ID selector example */
+#main-content {
+    padding: 10px;
+}
+
+/* Inline elements */
+strong {
+    font-weight: bold;
+    color: #d32f2f;
+}
+
+em {
+    font-style: italic;
+    color: #1976d2;
+}
+
+code {
+    background-color: #f0f0f0;
+    color: #d84315;
+    font-family: monospace;
+    padding: 2px 4px;
+}
+
+a {
+    color: #0066cc;
+    text-decoration: underline;
+}
+
+b {
+    color: #d32f2f;
+}
+
+/* Scrollable containers */
+.scroll-container {
+    height: 150px;
+    overflow: scroll;
+    background-color: #f0f0f0;
+    border: 1px solid #999;
+    padding: 10px;
+}
+
+.scroll-container-nested {
+    height: 200px;
+    overflow: scroll;
+    background-color: #e8f5e9;
+    border: 2px solid #4caf50;
+    padding: 15px;
+}
+
+.scroll-inner {
+    height: 100px;
+    overflow: scroll;
+    background-color: #fff3e0;
+    border: 2px solid #ff9800;
+    padding: 10px;
+    margin: 10px 0;
+}
+</style>
+<script>
+function getLayoutInfo() {
+  const elements = document.querySelectorAll('*');
+  const layout = [];
+  
+  elements.forEach((el, index) => {
+    if (el.tagName === 'SCRIPT' || el.tagName === 'STYLE' || el.tagName === 'HEAD') return;
+    
+    const rect = el.getBoundingClientRect();
+    const style = window.getComputedStyle(el);
+    
+    // Get identifying info
+    let selector = el.tagName.toLowerCase();
+    if (el.id) selector += '#' + el.id;
+    if (el.className && typeof el.className === 'string') {
+      selector += '.' + el.className.split(' ').filter(c => c).join('.');
+    }
+    
+    layout.push({
+      selector: selector,
+      // Position and size
+      x: Math.round(rect.left),
+      y: Math.round(rect.top + window.scrollY),
+      width: Math.round(rect.width),
+      height: Math.round(rect.height),
+      // Margins
+      marginTop: parseFloat(style.marginTop),
+      marginRight: parseFloat(style.marginRight),
+      marginBottom: parseFloat(style.marginBottom),
+      marginLeft: parseFloat(style.marginLeft),
+      // Padding
+      paddingTop: parseFloat(style.paddingTop),
+      paddingRight: parseFloat(style.paddingRight),
+      paddingBottom: parseFloat(style.paddingBottom),
+      paddingLeft: parseFloat(style.paddingLeft),
+      // Border
+      borderTopWidth: parseFloat(style.borderTopWidth),
+      borderRightWidth: parseFloat(style.borderRightWidth),
+      borderBottomWidth: parseFloat(style.borderBottomWidth),
+      borderLeftWidth: parseFloat(style.borderLeftWidth),
+      // Font
+      fontSize: parseFloat(style.fontSize),
+      lineHeight: style.lineHeight,
+      // Display
+      display: style.display
+    });
+  });
+  
+  return layout;
+}
+
+// Run after page loads and copy to clipboard
+window.onload = function() {
+  setTimeout(() => {
+    const data = getLayoutInfo();
+    const json = JSON.stringify(data, null, 2);
+    console.log(json);
+    
+    // Try to copy to clipboard
+    navigator.clipboard.writeText(json).then(() => {
+      console.log('Layout data copied to clipboard!');
+      alert('Layout data copied to clipboard! Check console for details.');
+    }).catch(() => {
+      console.log('Could not copy to clipboard. Data logged above.');
+      alert('Layout data logged to console (F12). Copy from there.');
+    });
+  }, 500);
+};
+</script>
+</head>
+<body>
+<div id="main-content">
+    <header>
+        <h1>Skene Browser Engine</h1>
+        <p class="subtitle">A modern HTML renderer built from scratch</p>
+    </header>
+
+    <section>
+        <h2>Features</h2>
+        <article class="feature-css">
+            <h3>CSS Support</h3>
+            <p>Supports <strong>padding</strong>, <em>margin</em>, colors (hex, rgb, named), <code>background-color</code>, border-radius, and more. You can also use <b>bold text</b> with the b tag and <a href="#">link styling</a>.</p>
+        </article>
+        <hr>
+        <article class="feature-text">
+            <h3>Text Wrapping</h3>
+            <p>This is a long paragraph that demonstrates automatic text wrapping. The layout engine will break lines at word boundaries when the text exceeds the available width.</p>
+        </article>
+    </section>
+    
+    <section>
+        <h2>Line Breaks</h2>
+        <p>This is line one.<br>This is line two.<br>This is line three.</p>
+        <p>You can also have<br><br><br><br><br><br><br><br>double line breaks!</p>
+    </section>
+
+    <section>
+        <h2>Lists</h2>
+        <h3>Unordered List</h3>
+        <ul>
+            <li>First item</li>
+            <li>Second item</li>
+            <li>Third item with longer text that might wrap to multiple lines</li>
+        </ul>
+        
+        <h3>Ordered List</h3>
+        <ol>
+            <li>Step one</li>
+            <li>Step two</li>
+            <li>Step three</li>
+            <li>Step four</li>
+            <li>Step five</li>
+        </ol>
+        
+        <h3>Nested Lists</h3>
+        <ul>
+            <li>Parent item 1
+                <ul>
+                    <li>Child item 1.1</li>
+                    <li>Child item 1.2</li>
+                </ul>
+            </li>
+            <li>Parent item 2
+                <ol>
+                    <li>Numbered child 2.1</li>
+                    <li>Numbered child 2.2</li>
+                </ol>
+            </li>
+        </ul>
+    </section>
+
+    <hr>
+    
+    <section>
+        <h2>Text Formatting</h2>
+        
+        <h3>Highlight and Size</h3>
+        <p>This text has a <mark>highlighted section</mark> using the mark element.</p>
+        <p>This is normal text and <small>this is small text</small> for fine print.</p>
+        
+        <h3>Subscript and Superscript</h3>
+        <p>Water is H<sub>2</sub>O and Einstein's equation is E=mc<sup>2</sup>.</p>
+        <p>Footnote reference<sup>1</sup> and chemical formula CO<sub>2</sub>.</p>
+        
+        <h3>Blockquote</h3>
+        <blockquote>
+            This is a blockquote. It should be indented from both sides and used for quoting text from other sources.
+        </blockquote>
+        
+        <h3>Preformatted Text</h3>
+        <pre>function hello() {
+    console.log("Hello, World!");
+    return 42;
+}</pre>
+    </section>
+
+    <hr>
+    
+    <section>
+        <h2>Images</h2>
+        <p>Images with different sizes:</p>
+        <p>
+            <img src="photo.jpg" alt="A beautiful photo" width="200" height="150">
+            <img src="icon.png" alt="Icon" width="64" height="64">
+            <img alt="Default size">
+        </p>
+    </section>
+
+    <hr>
+    
+    <section>
+        <h2>Tables</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Age</th>
+                    <th>City</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Alice</td>
+                    <td>28</td>
+                    <td>New York</td>
+                </tr>
+                <tr>
+                    <td>Bob</td>
+                    <td>35</td>
+                    <td>Los Angeles</td>
+                </tr>
+                <tr>
+                    <td>Charlie</td>
+                    <td>42</td>
+                    <td>Chicago</td>
+                </tr>
+            </tbody>
+        </table>
+    </section>
+
+    <hr>
+    
+    <section>
+        <h2>Forms</h2>
+        <form>
+            <p>
+                <label>Name:</label>
+                <input type="text" placeholder="Enter your name">
+            </p>
+            <p>
+                <label>Email:</label>
+                <input type="email" placeholder="you@example.com">
+            </p>
+            <p>
+                <label>Password:</label>
+                <input type="password" placeholder="••••••••">
+            </p>
+            <p>
+                <label>Country:</label>
+                <select>
+                    <option>United States</option>
+                    <option>Canada</option>
+                    <option>United Kingdom</option>
+                </select>
+            </p>
+            <p>
+                <label>Message:</label><br>
+                <textarea rows="4" cols="40" placeholder="Enter your message here..."></textarea>
+            </p>
+            <p>
+                <label><input type="checkbox" checked> Subscribe to newsletter</label><br>
+                <label><input type="checkbox"> Send me promotional emails</label><br>
+                <label><input type="checkbox" checked> I agree to the terms and conditions</label><br>
+                <label><input type="checkbox" checked> I agree to the terms and conditions</label><br>
+                <label><input type="checkbox" checked> I agree to the terms and conditions</label><br>
+                <label><input type="checkbox" checked> I agree to the terms and conditions</label><br>
+            </p>
+            <p><button>Submit</button><button>Cancel</button></p>
+        </form>
+    </section>
+
+    <hr>
+        <div class="flex-item green-box">
+            <h4 class="green-title">Flexbox Layout</h4>
+            <p>Using display: flex</p>
+        </div>
+        <div class="flex-item pink-box">
+            <h4 class="pink-title">Multiple Columns</h4>
+            <p>Let's don't   -   haven't</p>
+        </div>
+    </div>
+
+    <aside>
+        <h5>Special Characters</h5>
+        <p>HTML entities: &amp; &lt; &gt; &quot; &copy; &reg; &euro;</p>
+        <p style="font-family: monospace;">Monospace: function test() { return 42; }</p>
+    </aside>
+
+    <section>
+        <h2>Scrollable Content</h2>
+        <div class="scroll-container">
+            <h4>Scroll me!</h4>
+            <p>This is a scrollable container with overflow: scroll. You can scroll within this element independently from the main page.</p>
+            <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>
+            <p>Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.</p>
+            <p>Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.</p>
+            <p>Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.</p>
+            <p>More content here to make sure we have enough to scroll through.</p>
+            <p>And even more content at the bottom!</p>
+        </div>
+    </section>
+
+    <section>
+        <h2>Nested Scrollable</h2>
+        <div class="scroll-container-nested">
+            <h4>Outer Scrollable</h4>
+            <p>This is the outer scrollable container. Scroll down to see more content and a nested scrollable element.</p>
+            <div class="scroll-inner">
+                <h5>Inner Scrollable</h5>
+                <p>This is a nested scrollable element inside the outer one.</p>
+                <p>The clipping should work correctly - content is clipped to the intersection of both containers.</p>
+                <p>More inner content here...</p>
+                <p>And even more inner content!</p>
+                <p>Keep scrolling inside this inner box.</p>
+            </div>
+            <p>Back to the outer container content.</p>
+            <p>More outer content below the inner scrollable.</p>
+            <p>The inner box should clip properly when you scroll the outer container.</p>
+            <p>Additional outer content...</p>
+            <p>Final outer paragraph.</p>
+        </div>
+    </section>
+
+    <footer>
+        <p>Copyright &copy; 2026 Skene Project</p>
+    </footer>
+</div>
+</body>
+</html>
