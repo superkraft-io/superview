@@ -247,12 +247,23 @@ public:
     size_t startIndex = 0;  // Character offset in original text
   };
   std::vector<TextLine> textLines;
+  
+  // Text layout cache - avoid expensive rewrapping
+  float lastTextLayoutWidth = -1.0f;
+  float lastTextLayoutHeight = 0.0f;
 
   // Scroll state for overflow:scroll/auto elements
   float scrollX = 0.0f;
   float scrollY = 0.0f;
   float scrollableWidth = 0.0f;   // Content width beyond container
   float scrollableHeight = 0.0f;  // Content height beyond container
+  
+  // Layout cache - skip recalc if nothing changed
+  float lastLayoutX = -999999.0f;
+  float lastLayoutY = -999999.0f;
+  float lastLayoutWidth = -1.0f;
+  bool layoutCacheValid = false;
+  bool usedFastPath = false;  // True if this element used position-shift only (was off-screen)
   
   // Returns true if this element has scrollable overflow
   bool isScrollable() const {
@@ -269,6 +280,50 @@ public:
     scrollX = std::max(0.0f, std::min(scrollX, maxScrollX()));
     scrollY = std::max(0.0f, std::min(scrollY, maxScrollY()));
   }
+  
+  // Shift position of this element and all descendants (used for off-screen optimization)
+  // Shift position of this element and all descendants (used for off-screen optimization)
+  // Also marks all shifted elements as needing full layout when they become visible
+  void shiftPosition(float deltaX, float deltaY) {
+    box.content.x += deltaX;
+    box.content.y += deltaY;
+    lastLayoutX += deltaX;
+    lastLayoutY += deltaY;
+    
+    // Mark this element as having used the fast path
+    usedFastPath = true;
+    
+    // Shift text lines
+    for (auto& line : textLines) {
+      line.x += deltaX;
+      line.y += deltaY;
+    }
+    
+    // Update frame
+    frame.x += deltaX;
+    frame.y += deltaY;
+    
+    // Recursively shift children (they also get marked as usedFastPath)
+    for (auto& child : children) {
+      if (child) child->shiftPosition(deltaX, deltaY);
+    }
+  }
+  
+  // Invalidate layout cache for this node and all descendants
+  void invalidateLayoutCache() {
+    layoutCacheValid = false;
+    for (auto& child : children) {
+      if (child) child->invalidateLayoutCache();
+    }
+  }
+  
+  // Clear fast path flag for this node and all descendants (used when parent does full layout)
+  void clearFastPathRecursive() {
+    usedFastPath = false;
+    for (auto& child : children) {
+      if (child) child->clearFastPathRecursive();
+    }
+  }
 
   RenderBox(std::shared_ptr<Node> n) : node(n) {}
 
@@ -277,10 +332,121 @@ public:
     child->parent = weak_from_this();
   }
 
+  // Helper: find the maximum right edge of all descendant content
+  // Stops recursion at children that have their own overflow handling
+  float findMaxDescendantRight() const {
+    float maxRight = box.borderBox().right();
+    for (const auto& child : children) {
+      if (!child) continue;
+      
+      // If child has its own overflow handling, don't look at its children
+      // (they'll be clipped/scrolled within the child)
+      bool childHasOverflow = (
+        child->computedStyle.overflow == Overflow::Scroll ||
+        child->computedStyle.overflow == Overflow::Auto ||
+        child->computedStyle.overflow == Overflow::Hidden
+      );
+      
+      if (childHasOverflow) {
+        // Just use the child's border box, not its descendants
+        maxRight = std::max(maxRight, child->box.borderBox().right());
+      } else {
+        // Recurse into child's descendants
+        maxRight = std::max(maxRight, child->findMaxDescendantRight());
+      }
+    }
+    return maxRight;
+  }
+
   // New layout with StyleSheet and FontManager support
+  // viewportScrollY: current scroll position (top of visible area)
+  // Elements below viewportScrollY + viewportHeight can use minimal layout
   void layout(float x, float y, float availableWidth, StyleSheet &styleSheet,
               MSDFFontManager *fontManager, float viewportWidth = 1024.0f,
-              float viewportHeight = 768.0f, bool inInlineFlow = false) {
+              float viewportHeight = 768.0f, bool inInlineFlow = false,
+              float viewportScrollY = 0.0f) {
+    
+    // Viewport-aware optimization: if this element starts below the viewport,
+    // and we have valid cached dimensions, skip full layout and reuse cached height
+    float viewportBottom = viewportScrollY + viewportHeight;
+    bool isBelowViewport = (y > viewportBottom);
+    bool isNowVisible = !isBelowViewport;
+    
+    // If element was previously off-screen (used fast path) and is now visible,
+    // force a full relayout to get accurate positioning
+    bool needsFullLayout = usedFastPath && isNowVisible;
+    
+    // If below viewport and we have cached dimensions, do minimal layout
+    if (isBelowViewport && lastLayoutWidth > 0 && box.content.height > 0 && !needsFullLayout) {
+      // Mark that we used the fast path (position shift only)
+      usedFastPath = true;
+      
+      // Just update position, reuse cached height
+      float deltaY = y - lastLayoutY;
+      float deltaX = x - lastLayoutX;
+      
+      // Update box positions
+      box.content.x += deltaX;
+      box.content.y = y + (box.content.y - lastLayoutY);
+      
+      // Update text line positions if any
+      for (auto& line : textLines) {
+        line.x += deltaX;
+        line.y += deltaY;
+      }
+      
+      // Update children positions recursively
+      for (auto& child : children) {
+        if (child) {
+          child->shiftPosition(deltaX, deltaY);
+        }
+      }
+      
+      // Update cache
+      lastLayoutX = x;
+      lastLayoutY = y;
+      
+      // Frame was already set relative to margin box
+      float marginTop = computedStyle.getMarginTop(availableWidth, computedStyle.fontSize);
+      float marginBottom = computedStyle.getMarginBottom(availableWidth, computedStyle.fontSize);
+      float marginLeft = computedStyle.getMarginLeft(availableWidth, computedStyle.fontSize);
+      float marginRight = computedStyle.getMarginRight(availableWidth, computedStyle.fontSize);
+      frame = {box.content.x - marginLeft - computedStyle.getBorderLeftWidth() - computedStyle.getPaddingLeft(availableWidth, computedStyle.fontSize),
+               box.content.y - marginTop - computedStyle.getBorderTopWidth() - computedStyle.getPaddingTop(availableWidth, computedStyle.fontSize),
+               box.borderBox().width + marginLeft + marginRight,
+               box.borderBox().height + marginTop + marginBottom};
+      return;
+    }
+    
+    // Element is visible or needs full layout - clear the fast path flag
+    usedFastPath = false;
+    
+    // If we're doing a full layout because element came into view,
+    // clear fast path flags on all children so they also get full layout
+    if (needsFullLayout) {
+      for (auto& child : children) {
+        if (child) child->clearFastPathRecursive();
+      }
+    }
+    
+    // Layout cache optimization: skip full recalc if position and width unchanged
+    // This dramatically speeds up resize by avoiding redundant calculations
+    // But don't skip if element needs full layout (was off-screen, now visible)
+    if (layoutCacheValid && !needsFullLayout &&
+        x == lastLayoutX && 
+        y == lastLayoutY && 
+        availableWidth == lastLayoutWidth) {
+      // Position unchanged - just update children's Y positions if needed
+      // (they may have shifted due to siblings above them changing)
+      return;
+    }
+    
+    // Cache current layout params
+    lastLayoutX = x;
+    lastLayoutY = y;
+    lastLayoutWidth = availableWidth;
+    layoutCacheValid = true;
+    
     // Compute style for this node
     computedStyle = styleSheet.computeStyle(*node);
     
@@ -316,9 +482,11 @@ public:
         }
         
         // Inherit text-align, font-family, line-height from parent
-        // unless explicitly set via inline style
+        // unless explicitly set via inline style OR CSS rules
+        // Check both inline style and whether the computed style differs from default
         bool textAlignExplicitlySet = inlineStyle.find("text-align") != std::string::npos;
-        if (!textAlignExplicitlySet) {
+        bool textAlignSetByCssRule = computedStyle.textAlign != TextAlign::Left;  // Left is default
+        if (!textAlignExplicitlySet && !textAlignSetByCssRule) {
           computedStyle.textAlign = parentBox->computedStyle.textAlign;
         }
         
@@ -473,15 +641,15 @@ public:
     } else if (style.display == DisplayType::Flex) {
       contentHeight = layoutFlexChildren(contentStartX, contentStartY,
                                          contentWidth, styleSheet, fontManager,
-                                         viewportWidth, viewportHeight);
+                                         viewportWidth, viewportHeight, viewportScrollY);
     } else if (style.display == DisplayType::Table) {
       contentHeight = layoutTableChildren(contentStartX, contentStartY,
                                          contentWidth, styleSheet, fontManager,
-                                         viewportWidth, viewportHeight);
+                                         viewportWidth, viewportHeight, viewportScrollY);
     } else if (style.display == DisplayType::Block) {
       contentHeight = layoutBlockChildren(contentStartX, contentStartY,
                                           contentWidth, styleSheet, fontManager,
-                                          viewportWidth, viewportHeight);
+                                          viewportWidth, viewportHeight, viewportScrollY);
     } else if (style.display == DisplayType::TableRowGroup ||
                style.display == DisplayType::TableRow ||
                style.display == DisplayType::TableCell) {
@@ -489,7 +657,7 @@ public:
       // Just layout their children as blocks
       contentHeight = layoutBlockChildren(contentStartX, contentStartY,
                                           contentWidth, styleSheet, fontManager,
-                                          viewportWidth, viewportHeight);
+                                          viewportWidth, viewportHeight, viewportScrollY);
     } else {
       // For inline elements that sized to intrinsic width, use a large width
       // to prevent internal wrapping (the parent handles line wrapping)
@@ -500,7 +668,7 @@ public:
       }
       contentHeight = layoutInlineChildren(contentStartX, contentStartY,
                                            layoutWidth, styleSheet, fontManager,
-                                           viewportWidth, viewportHeight);
+                                           viewportWidth, viewportHeight, viewportScrollY);
     }
 
     // Store natural content height for scroll calculation
@@ -629,8 +797,19 @@ public:
     
     // Calculate scrollable area for overflow:scroll/auto elements
     if (style.overflow == Overflow::Scroll || style.overflow == Overflow::Auto) {
-      scrollableHeight = std::max(0.0f, naturalContentHeight - contentHeight);
-      scrollableWidth = 0.0f; // TODO: horizontal scrolling
+      // Use a threshold to ignore tiny overflow (floating point precision issues)
+      float rawScrollableHeight = naturalContentHeight - contentHeight;
+      scrollableHeight = rawScrollableHeight > 3.0f ? rawScrollableHeight : 0.0f;
+      
+      // Calculate scrollable width: find the maximum width extent of ALL descendants
+      // (not just direct children) relative to content box
+      float maxDescendantRight = findMaxDescendantRight();
+      float contentLeft = box.content.x;
+      float maxChildExtent = maxDescendantRight - contentLeft;
+      
+      // Use a threshold to ignore tiny overflow (floating point precision issues)
+      float rawScrollableWidth = maxChildExtent - contentWidth;
+      scrollableWidth = rawScrollableWidth > 3.0f ? rawScrollableWidth : 0.0f;
       clampScroll();
     } else {
       scrollableHeight = 0.0f;
@@ -876,9 +1055,9 @@ private:
 
   float layoutText(float x, float y, float maxWidth, MSDFFont *font,
                    const StyleSheet::ComputedStyle &style) {
-    textLines.clear();
-
+    
     if (!font || node->textContent.empty()) {
+      textLines.clear();
       return 0;
     }
 
@@ -889,6 +1068,24 @@ private:
 
     float fontSize = style.fontSize;
     float lineHeight = fontSize * style.lineHeight;
+    
+    // Text layout cache: if width unchanged, just adjust Y positions
+    // This dramatically speeds up resize when only Y positions change
+    if (!textLines.empty() && std::abs(maxWidth - lastTextLayoutWidth) < 1.0f) {
+      // Width same - just shift Y positions
+      float deltaY = y - textLines[0].y;
+      if (std::abs(deltaY) > 0.001f) {
+        for (auto& line : textLines) {
+          line.y += deltaY;
+        }
+      }
+      return lastTextLayoutHeight;
+    }
+    
+    // Width changed - need to recalculate text wrapping
+    textLines.clear();
+    lastTextLayoutWidth = maxWidth;
+    
     float currentY = y;
 
     std::string text = node->textContent;
@@ -919,6 +1116,7 @@ private:
       line.width = totalWidth;
       line.height = lineHeight;
       textLines.push_back(line);
+      lastTextLayoutHeight = lineHeight;
       return lineHeight;
     }
 
@@ -1006,12 +1204,14 @@ private:
       currentY += lineHeight;
     }
 
-    return currentY - y;
+    lastTextLayoutHeight = currentY - y;
+    return lastTextLayoutHeight;
   }
 
   float layoutBlockChildren(float x, float y, float width,
                             StyleSheet &styleSheet, MSDFFontManager *fontManager,
-                            float viewportWidth, float viewportHeight) {
+                            float viewportWidth, float viewportHeight,
+                            float viewportScrollY = 0.0f) {
     // Check if all children are inline and count inline elements vs text nodes
     bool allInline = true;
     int inlineElementCount = 0;
@@ -1040,7 +1240,7 @@ private:
     
     if (allInline && !children.empty() && hasInlineElements) {
       return layoutInlineChildren(x, y, width, styleSheet, fontManager, viewportWidth,
-                                 viewportHeight);
+                                 viewportHeight, viewportScrollY);
     }
     
     // Otherwise, use block layout with CSS margin collapsing
@@ -1078,7 +1278,7 @@ private:
         }
         
         currentY += layoutInlineGroup(inlineGroup, x, currentY, width, styleSheet,
-                                     fontManager, viewportWidth, viewportHeight);
+                                     fontManager, viewportWidth, viewportHeight, viewportScrollY);
         prevMarginBottom = 0.0f;  // Reset after inline content
       } else {
         // Block element - apply CSS margin collapsing
@@ -1100,7 +1300,7 @@ private:
         float marginBoxY = currentY - prevMarginBottom + collapsedMargin - childMarginTop;
         
         child->layout(x, marginBoxY, width, styleSheet, fontManager, viewportWidth,
-                     viewportHeight, false);
+                     viewportHeight, false, viewportScrollY);
         
         // Move currentY to after this child's border box, then add its bottom margin
         Rect borderBox = child->box.borderBox();
@@ -1367,7 +1567,8 @@ private:
   // Helper function to layout a group of inline elements on the same line(s)
   float layoutInlineGroup(const std::vector<size_t> &indices, float x, float y,
                          float width, StyleSheet &styleSheet, MSDFFontManager *fontManager,
-                         float viewportWidth, float viewportHeight) {
+                         float viewportWidth, float viewportHeight,
+                         float viewportScrollY = 0.0f) {
     float currentX = x;
     float currentY = y;
     float lineHeight = 20.0f;
@@ -1534,7 +1735,7 @@ private:
         }
 
         child->layout(currentX, currentY, width - (currentX - x), styleSheet, fontManager,
-                     viewportWidth, viewportHeight, true);
+                     viewportWidth, viewportHeight, true, viewportScrollY);
         
         Rect childBox = child->box.borderBox();
         
@@ -1558,7 +1759,7 @@ private:
           
           // Re-layout child on new line
           child->layout(currentX, currentY, width, styleSheet, fontManager,
-                       viewportWidth, viewportHeight, true);
+                       viewportWidth, viewportHeight, true, viewportScrollY);
           childBox = child->box.borderBox();
           
           // Reposition again after wrapping
@@ -1583,7 +1784,8 @@ private:
 
   float layoutInlineChildren(float x, float y, float width,
                              StyleSheet &styleSheet, MSDFFontManager *fontManager,
-                             float viewportWidth, float viewportHeight) {
+                             float viewportWidth, float viewportHeight,
+                             float viewportScrollY = 0.0f) {
     float currentX = x;
     float currentY = y;
     float lineHeight = 20.0f;
@@ -1747,7 +1949,7 @@ private:
         }
 
         child->layout(currentX, currentY, width - (currentX - x), styleSheet,
-                      fontManager, viewportWidth, viewportHeight, true);
+                      fontManager, viewportWidth, viewportHeight, true, viewportScrollY);
 
         Rect childBox = child->box.borderBox();
 
@@ -1764,7 +1966,7 @@ private:
           maxLineHeight = lineHeight;
 
           child->layout(currentX, currentY, width, styleSheet, fontManager,
-                        viewportWidth, viewportHeight, true);
+                        viewportWidth, viewportHeight, true, viewportScrollY);
           childBox = child->box.borderBox();
         }
 
@@ -1784,7 +1986,8 @@ private:
 
   float layoutFlexChildren(float x, float y, float width,
                            StyleSheet &styleSheet, MSDFFontManager *fontManager,
-                           float viewportWidth, float viewportHeight) {
+                           float viewportWidth, float viewportHeight,
+                           float viewportScrollY = 0.0f) {
     auto &style = computedStyle;
     bool isRow = (style.flexDirection == "row" ||
                   style.flexDirection == "row-reverse");
@@ -1906,12 +2109,12 @@ private:
         if (isRow) {
           float childWidth = intrinsicSizes[idx] + extraSize;
           child->layout(x + currentPos, currentY_line, childWidth, styleSheet, fontManager,
-                        viewportWidth, viewportHeight);
+                        viewportWidth, viewportHeight, false, viewportScrollY);
           currentPos += child->frame.width + gap;
           maxCrossSize = std::max(maxCrossSize, child->frame.height);
         } else {
           child->layout(x, currentY_line + currentPos, width, styleSheet, fontManager,
-                        viewportWidth, viewportHeight);
+                        viewportWidth, viewportHeight, false, viewportScrollY);
           currentPos += child->frame.height + gap;
           maxCrossSize = std::max(maxCrossSize, child->frame.width);
         }
@@ -1938,7 +2141,7 @@ private:
   // Table layout algorithm
   float layoutTableChildren(float x, float y, float width, StyleSheet &styleSheet,
                            MSDFFontManager *fontManager, float viewportWidth,
-                           float viewportHeight) {
+                           float viewportHeight, float viewportScrollY = 0.0f) {
     // Find all table rows (including through tbody/thead/tfoot)
     std::vector<std::shared_ptr<RenderBox>> rows;
     std::vector<std::vector<std::shared_ptr<RenderBox>>> cellsByRow;
@@ -2070,7 +2273,7 @@ private:
         float cellWidth = columnWidths[colIdx];
         
         // Layout cell with its column width
-        cell->layout(currentX, currentY, cellWidth, styleSheet, fontManager, viewportWidth, viewportHeight);
+        cell->layout(currentX, currentY, cellWidth, styleSheet, fontManager, viewportWidth, viewportHeight, false, viewportScrollY);
         
         maxRowHeight = std::max(maxRowHeight, cell->frame.height);
         currentX += cellWidth;
@@ -2154,16 +2357,18 @@ public:
     styleSheet.setViewport(viewportWidth, viewportHeight);
     root = build(domRoot);
     root->layout(0, 0, screenWidth, styleSheet, fontManager, viewportWidth,
-                 viewportHeight);
+                 viewportHeight, false, 0.0f);
   }
 
-  void relayout(float screenWidth, float screenHeight, StyleSheet &styleSheet, MSDFFontManager *fontManager) {
+  // relayout with viewport scroll position for off-screen optimization
+  void relayout(float screenWidth, float screenHeight, StyleSheet &styleSheet, 
+                MSDFFontManager *fontManager, float viewportScrollY = 0.0f) {
     if (root) {
       viewportWidth = screenWidth;
       viewportHeight = screenHeight;
       styleSheet.setViewport(viewportWidth, viewportHeight);
       root->layout(0, 0, screenWidth, styleSheet, fontManager, viewportWidth,
-                   viewportHeight);
+                   viewportHeight, false, viewportScrollY);
     }
   }
 };

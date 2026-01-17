@@ -432,7 +432,7 @@ window.onload = function() {
 
     <hr>
     
-    <section>
+    <section style="width: 30%; overflow: auto;">
         <h2>Tables</h2>
         <table>
             <thead>
@@ -460,6 +460,82 @@ window.onload = function() {
                 </tr>
             </tbody>
         </table>
+        
+        <h3>Wide Table (Horizontal Scroll)</h3>
+        <p>Use <strong>Shift + Mouse Wheel</strong> to scroll horizontally:</p>
+        <div style="width: 100%; margin-top: 10px; background: #f9f9f9; overflow: auto;">
+            <table id="wide-table" style="width: 1200px; border-collapse: collapse;">
+                <thead>
+                    <tr>
+                        <th style="border: 1px solid #ccc; padding: 8px;">ID</th>
+                        <th style="border: 1px solid #ccc; padding: 8px;">Name</th>
+                        <th style="border: 1px solid #ccc; padding: 8px;">Department</th>
+                        <th style="border: 1px solid #ccc; padding: 8px;">Position</th>
+                        <th style="border: 1px solid #ccc; padding: 8px;">Salary</th>
+                        <th style="border: 1px solid #ccc; padding: 8px;">Start Date</th>
+                        <th style="border: 1px solid #ccc; padding: 8px;">Email</th>
+                        <th style="border: 1px solid #ccc; padding: 8px;">Phone</th>
+                        <th style="border: 1px solid #ccc; padding: 8px;">Address</th>
+                        <th style="border: 1px solid #ccc; padding: 8px;">City</th>
+                        <th style="border: 1px solid #ccc; padding: 8px;">Country</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td style="border: 1px solid #ccc; padding: 8px;">001</td>
+                        <td style="border: 1px solid #ccc; padding: 8px;">Alice Johnson</td>
+                        <td style="border: 1px solid #ccc; padding: 8px;">Engineering</td>
+                        <td style="border: 1px solid #ccc; padding: 8px;">Senior Developer</td>
+                        <td style="border: 1px solid #ccc; padding: 8px;">$120,000</td>
+                        <td style="border: 1px solid #ccc; padding: 8px;">2020-01-15</td>
+                        <td style="border: 1px solid #ccc; padding: 8px;">alice.johnson@company.com</td>
+                        <td style="border: 1px solid #ccc; padding: 8px;">555-0101</td>
+                        <td style="border: 1px solid #ccc; padding: 8px;">123 Main Street</td>
+                        <td style="border: 1px solid #ccc; padding: 8px;">New York</td>
+                        <td style="border: 1px solid #ccc; padding: 8px;">USA</td>
+                    </tr>
+                    <tr>
+                        <td style="border: 1px solid #ccc; padding: 8px;">002</td>
+                        <td style="border: 1px solid #ccc; padding: 8px;">Bob Smith</td>
+                        <td style="border: 1px solid #ccc; padding: 8px;">Marketing</td>
+                        <td style="border: 1px solid #ccc; padding: 8px;">Marketing Manager</td>
+                        <td style="border: 1px solid #ccc; padding: 8px;">$95,000</td>
+                        <td style="border: 1px solid #ccc; padding: 8px;">2020-03-22</td>
+                        <td style="border: 1px solid #ccc; padding: 8px;">bob.smith@company.com</td>
+                        <td style="border: 1px solid #ccc; padding: 8px;">555-0102</td>
+                        <td style="border: 1px solid #ccc; padding: 8px;">456 Oak Avenue</td>
+                        <td style="border: 1px solid #ccc; padding: 8px;">Los Angeles</td>
+                        <td style="border: 1px solid #ccc; padding: 8px;">USA</td>
+                    </tr>
+                    <tr>
+                        <td style="border: 1px solid #ccc; padding: 8px;">003</td>
+                        <td style="border: 1px solid #ccc; padding: 8px;">Charlie Davis</td>
+                        <td style="border: 1px solid #ccc; padding: 8px;">Sales</td>
+                        <td style="border: 1px solid #ccc; padding: 8px;">Sales Representative</td>
+                        <td style="border: 1px solid #ccc; padding: 8px;">$75,000</td>
+                        <td style="border: 1px solid #ccc; padding: 8px;">2021-06-10</td>
+                        <td style="border: 1px solid #ccc; padding: 8px;">charlie.davis@company.com</td>
+                        <td style="border: 1px solid #ccc; padding: 8px;">555-0103</td>
+                        <td style="border: 1px solid #ccc; padding: 8px;">789 Pine Road</td>
+                        <td style="border: 1px solid #ccc; padding: 8px;">Chicago</td>
+                        <td style="border: 1px solid #ccc; padding: 8px;">USA</td>
+                    </tr>
+                    <tr>
+                        <td style="border: 1px solid #ccc; padding: 8px;">004</td>
+                        <td style="border: 1px solid #ccc; padding: 8px;">Diana Wilson</td>
+                        <td style="border: 1px solid #ccc; padding: 8px;">HR</td>
+                        <td style="border: 1px solid #ccc; padding: 8px;">HR Director</td>
+                        <td style="border: 1px solid #ccc; padding: 8px;">$110,000</td>
+                        <td style="border: 1px solid #ccc; padding: 8px;">2019-11-05</td>
+                        <td style="border: 1px solid #ccc; padding: 8px;">diana.wilson@company.com</td>
+                        <td style="border: 1px solid #ccc; padding: 8px;">555-0104</td>
+                        <td style="border: 1px solid #ccc; padding: 8px;">321 Elm Street</td>
+                        <td style="border: 1px solid #ccc; padding: 8px;">Boston</td>
+                        <td style="border: 1px solid #ccc; padding: 8px;">USA</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
     </section>
 
     <hr>

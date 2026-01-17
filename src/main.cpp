@@ -35,6 +35,7 @@ skene::StyleSheet* g_styleSheet = nullptr;
 skene::MSDFFontManager* g_fontManager = nullptr;  // MSDF font manager for sharp text
 std::shared_ptr<skene::Node> g_dom = nullptr;
 bool g_needsRender = false;
+bool g_needsLayout = false;  // Only relayout when content changes
 
 // Forward declaration
 void doRender();
@@ -67,8 +68,17 @@ const Uint32 DOUBLE_CLICK_TIME = 500; // ms
 const int DOUBLE_CLICK_DISTANCE = 5; // pixels
 
 // Scroll state
+float scrollX = 0.0f;
 float scrollY = 0.0f;
+float maxScrollX = 0.0f;
 float maxScrollY = 0.0f;
+
+// Keyboard state
+bool shiftKeyPressed = false;
+
+// Resize throttling
+Uint32 lastResizeLayoutTime = 0;
+const Uint32 RESIZE_LAYOUT_INTERVAL = 50;  // ms between relayouts during resize
 
 // Debug/FPS tracking
 Uint32 fpsLastTime = 0;
@@ -1663,16 +1673,36 @@ void paint(skene::Renderer &renderer, std::shared_ptr<skene::RenderBox> box,
     float contentH = box->box.content.height;
     float totalHeight = contentH + box->scrollableHeight;
     
-    // Scrollbar track
+    // Vertical scrollbar track
     float scrollbarWidth = 8.0f;
     float scrollbarX = contentX + contentW - scrollbarWidth;
     renderer.drawRect(scrollbarX, contentY, scrollbarWidth, contentH, 0.9f, 0.9f, 0.9f, 0.5f);
     
-    // Scrollbar thumb
+    // Vertical scrollbar thumb
     float thumbHeight = (contentH / totalHeight) * contentH;
     thumbHeight = std::max(thumbHeight, 20.0f);  // Minimum thumb size
     float thumbY = contentY + (box->scrollY / box->maxScrollY()) * (contentH - thumbHeight);
     renderer.drawRect(scrollbarX, thumbY, scrollbarWidth, thumbHeight, 0.5f, 0.5f, 0.5f, 0.8f);
+  }
+
+  // Draw horizontal scrollbar for elements with scrollableWidth (only if meaningful overflow)
+  if (hasScrolling && box->scrollableWidth > 3.0f) {
+    float contentX = box->box.content.x;
+    float contentY = box->box.content.y;
+    float contentW = box->box.content.width;
+    float contentH = box->box.content.height;
+    float totalWidth = contentW + box->scrollableWidth;
+    
+    // Horizontal scrollbar track
+    float scrollbarHeight = 8.0f;
+    float scrollbarY = contentY + contentH - scrollbarHeight;
+    renderer.drawRect(contentX, scrollbarY, contentW, scrollbarHeight, 0.9f, 0.9f, 0.9f, 0.5f);
+    
+    // Horizontal scrollbar thumb
+    float thumbWidth = (contentW / totalWidth) * contentW;
+    thumbWidth = std::max(thumbWidth, 20.0f);  // Minimum thumb size
+    float thumbX = contentX + (box->scrollX / box->maxScrollX()) * (contentW - thumbWidth);
+    renderer.drawRect(thumbX, scrollbarY, thumbWidth, scrollbarHeight, 0.5f, 0.5f, 0.5f, 0.8f);
   }
 
   // 8. Clear clipping after drawing scrollbar
@@ -1685,11 +1715,37 @@ void paint(skene::Renderer &renderer, std::shared_ptr<skene::RenderBox> box,
   renderer.setOpacity(1.0f);
 }
 
+// Helper: Calculate the maximum width extent of all content (for horizontal scrolling)
+float calculateMaxContentWidth(const std::shared_ptr<skene::RenderBox>& box, bool isRoot = true) {
+  if (!box) return 0.0f;
+  
+  float maxWidth = box->box.borderBox().right();
+  
+  // If this box has overflow handling (scroll/auto/hidden), don't count its children's widths
+  // towards the page's max width - they handle their own scrolling
+  bool hasOwnScrolling = !isRoot && (
+    box->computedStyle.overflow == skene::Overflow::Scroll ||
+    box->computedStyle.overflow == skene::Overflow::Auto ||
+    box->computedStyle.overflow == skene::Overflow::Hidden
+  );
+  
+  if (!hasOwnScrolling) {
+    // Check all children
+    for (const auto& child : box->children) {
+      float childMax = calculateMaxContentWidth(child, false);
+      maxWidth = std::max(maxWidth, childMax);
+    }
+  }
+  
+  return maxWidth;
+}
+
 // Reload function for Ctrl+R
 void reloadPage() {
   if (!g_renderTree || !g_styleSheet || !g_fontManager || !g_dom) return;
   
   // Save current scroll position before reloading
+  float savedScrollX = scrollX;
   float savedScrollY = scrollY;
   
   std::string filename = "index.html";
@@ -1737,13 +1793,65 @@ void reloadPage() {
   selectedNode = nullptr;
   
   // Restore scroll position (clamped to new max scroll)
+  scrollX = savedScrollX;
   scrollY = savedScrollY;
+  if (scrollX < 0) scrollX = 0;
+  if (scrollX > maxScrollX) scrollX = maxScrollX;
   if (scrollY < 0) scrollY = 0;
   if (scrollY > maxScrollY) scrollY = maxScrollY;
   
-  std::cout << "Scroll restored to: " << scrollY << " (max: " << maxScrollY << ")" << std::endl;
+  std::cout << "Scroll restored to: (" << scrollX << ", " << scrollY << ") (max: " << maxScrollX << ", " << maxScrollY << ")" << std::endl;
   
   g_needsRender = true;
+  g_needsLayout = true;  // Trigger layout on next frame
+}
+
+// Fast render function for resize - skips expensive relayout
+void doRenderFast() {
+  if (!g_renderer || !g_renderTree || !g_styleSheet || !g_fontManager || !g_window) return;
+  
+  auto& renderer = *g_renderer;
+  auto& renderTree = *g_renderTree;
+  auto& styleSheet = *g_styleSheet;
+  auto& fontManager = *g_fontManager;
+  
+  // Mark that we need a proper relayout when resize ends
+  g_needsLayout = true;
+
+  renderer.clear();
+
+  // Set up clipping for content area
+  glEnable(GL_SCISSOR_TEST);
+  glScissor(0, 0, screenWidth - INSPECTOR_WIDTH, screenHeight);
+
+  // Apply scroll offset
+  renderer.pushTranslate(-scrollX, -scrollY);
+  
+  float viewportTop = scrollY;
+  float viewportBottom = scrollY + screenHeight;
+  
+  paint(renderer, renderTree.root, fontManager, styleSheet, viewportTop, viewportBottom);
+  renderer.popTranslate(-scrollX, -scrollY);
+
+  glDisable(GL_SCISSOR_TEST);
+
+  // Draw scrollbars
+  if (maxScrollY > 0) {
+    float viewportHeight = (float)screenHeight;
+    float contentHeight = viewportHeight + maxScrollY;
+    float scrollbarHeight = (viewportHeight / contentHeight) * viewportHeight;
+    float scrollbarY = (scrollY / maxScrollY) * (viewportHeight - scrollbarHeight);
+    float scrollbarX = (float)(screenWidth - INSPECTOR_WIDTH - 10);
+    renderer.drawRect(scrollbarX, 0, 8, viewportHeight, 0.9f, 0.9f, 0.9f, 0.5f);
+    renderer.drawRect(scrollbarX, scrollbarY, 8, scrollbarHeight, 0.6f, 0.6f, 0.6f, 0.8f);
+  }
+
+  // Inspector BG (minimal)
+  renderer.drawRect((screenWidth - INSPECTOR_WIDTH), 0, INSPECTOR_WIDTH, screenHeight,
+                    0.9f, 0.9f, 0.9f, 1.0f);
+
+  renderer.endFrame();
+  SDL_GL_SwapWindow(g_window);
 }
 
 // Render function that can be called during resize
@@ -1755,15 +1863,20 @@ void doRender() {
   auto& styleSheet = *g_styleSheet;
   auto& fontManager = *g_fontManager;
   
-  // Re-layout with new size
+  // Re-layout with new size, passing current scroll position for off-screen optimization
   renderTree.relayout((float)(screenWidth - INSPECTOR_WIDTH), (float)screenHeight,
-                      styleSheet, &fontManager);
+                      styleSheet, &fontManager, scrollY);
+  g_needsLayout = false;  // We just did layout
 
-  // Calculate max scroll based on content height
+  // Calculate max scroll based on content height and width
   if (renderTree.root) {
     float contentHeight = renderTree.root->box.borderBox().height;
+    // Use maximum width extent of all content (including children that overflow)
+    float maxContentWidth = calculateMaxContentWidth(renderTree.root);
     maxScrollY = std::max(0.0f, contentHeight - (float)screenHeight);
+    maxScrollX = std::max(0.0f, maxContentWidth - (float)(screenWidth - INSPECTOR_WIDTH));
     if (scrollY > maxScrollY) scrollY = maxScrollY;
+    if (scrollX > maxScrollX) scrollX = maxScrollX;
   }
 
   // Rebuild text boxes list
@@ -1776,18 +1889,20 @@ void doRender() {
   glEnable(GL_SCISSOR_TEST);
   glScissor(0, 0, screenWidth - INSPECTOR_WIDTH, screenHeight);
 
-  // Apply scroll offset
-  renderer.pushTranslate(0, -scrollY);
+  // Apply scroll offset (both horizontal and vertical)
+  renderer.pushTranslate(-scrollX, -scrollY);
   
   // Calculate viewport bounds in content space (accounting for scroll)
   float viewportTop = scrollY;
   float viewportBottom = scrollY + screenHeight;
+  float viewportLeft = scrollX;
+  float viewportRight = scrollX + (screenWidth - INSPECTOR_WIDTH);
   
   // Draw selection highlights first (fills gaps between inline elements)
   paintSelectionHighlights(renderer, fontManager);
   
   paint(renderer, renderTree.root, fontManager, styleSheet, viewportTop, viewportBottom);
-  renderer.popTranslate(0, -scrollY);
+  renderer.popTranslate(-scrollX, -scrollY);
 
   glDisable(GL_SCISSOR_TEST);
 
@@ -1800,6 +1915,20 @@ void doRender() {
     float scrollbarX = (float)(screenWidth - INSPECTOR_WIDTH - 10);
     renderer.drawRect(scrollbarX, 0, 8, viewportHeight, 0.9f, 0.9f, 0.9f, 0.5f);
     renderer.drawRect(scrollbarX, scrollbarY, 8, scrollbarHeight, 0.6f, 0.6f, 0.6f, 0.8f);
+  }
+
+  // Draw horizontal scrollbar if content overflows
+  if (maxScrollX > 0) {
+    float viewportWidth = (float)(screenWidth - INSPECTOR_WIDTH);
+    float contentWidth = viewportWidth + maxScrollX;
+    float thumbWidth = (viewportWidth / contentWidth) * viewportWidth;
+    thumbWidth = std::max(thumbWidth, 30.0f);
+    float thumbX = (scrollX / maxScrollX) * (viewportWidth - thumbWidth);
+    float scrollbarY = (float)(screenHeight - 12);
+    // Track
+    renderer.drawRect(0, scrollbarY, viewportWidth, 10, 0.9f, 0.9f, 0.9f, 0.5f);
+    // Thumb
+    renderer.drawRect(thumbX, scrollbarY, thumbWidth, 10, 0.6f, 0.6f, 0.6f, 0.8f);
   }
 
   // Inspector
@@ -1839,7 +1968,7 @@ int resizeEventWatcher(void* data, SDL_Event* event) {
       if (g_renderer) {
         g_renderer->resize(screenWidth, screenHeight);
       }
-      doRender();
+      doRender();  // Full render with relayout
     }
   }
   return 0;
@@ -1924,6 +2053,7 @@ int main(int argc, char *argv[]) {
   // Initial Layout
   renderTree.buildAndLayout(dom, (float)(screenWidth - INSPECTOR_WIDTH),
                             styleSheet, &fontManager);
+  g_needsLayout = true;  // Trigger layout recalc on first frame
 
   // Set up global pointers for resize event watcher
   g_window = window;
@@ -1966,8 +2096,8 @@ int main(int argc, char *argv[]) {
           screenWidth = e.window.data1;
           screenHeight = e.window.data2;
           renderer.resize(screenWidth, screenHeight);
-          // Reset scroll if needed
-          scrollY = 0;
+          // Trigger relayout for new size (scroll will be clamped in layout code)
+          g_needsLayout = true;
         }
       } else if (e.type == SDL_MOUSEBUTTONDOWN) {
         int mx = e.button.x;
@@ -2138,6 +2268,15 @@ int main(int argc, char *argv[]) {
           }
         }
       } else if (e.type == SDL_MOUSEMOTION) {
+        // Check keyboard mods
+        static int lastMods = 0;
+        int currentMods = SDL_GetModState();
+        if (currentMods != lastMods) {
+          lastMods = currentMods;
+          bool shift = (currentMods & KMOD_SHIFT) != 0;
+          bool ctrl = (currentMods & KMOD_CTRL) != 0;
+          std::cout << "Keyboard mods changed: shift=" << (shift?"YES":"NO") << " ctrl=" << (ctrl?"YES":"NO") << std::endl;
+        }
         int mx = e.motion.x;
         int my = e.motion.y;
         
@@ -2264,42 +2403,77 @@ int main(int argc, char *argv[]) {
         SDL_GetMouseState(&mx, &my);
         if (mx < (screenWidth - INSPECTOR_WIDTH)) {
           // Check if hovering over a scrollable element
-          float contentX = (float)mx;
+          float contentX = (float)mx + scrollX;
           float contentY = (float)my + scrollY;  // Account for page scroll
           
           // Get the scrollable element chain (innermost first, then ancestors)
           std::vector<std::shared_ptr<skene::RenderBox>> scrollableChain;
           auto scrollableBox = findScrollableElementAt(g_renderTree->root, contentX, contentY, 0, 0, &scrollableChain);
           
-          float scrollDelta = e.wheel.y * SCROLL_SPEED;
-          bool scrollConsumed = false;
+          // Check if Shift is pressed for horizontal scrolling
+          bool isHorizontalScroll = shiftKeyPressed;
           
-          // Try to scroll each element in the chain, propagating overflow
-          for (size_t i = 0; i < scrollableChain.size() && !scrollConsumed; ++i) {
-            auto& box = scrollableChain[i];
-            float oldScrollY = box->scrollY;
+          if (isHorizontalScroll) {
+            // Horizontal scrolling
+            float scrollDelta = e.wheel.y * SCROLL_SPEED;
+            bool scrollConsumed = false;
             
-            // Apply scroll delta
-            box->scrollY -= scrollDelta;
-            box->clampScroll();
-            
-            // Calculate how much was actually scrolled
-            float actualScroll = oldScrollY - box->scrollY;
-            
-            // If we scrolled the full amount, consume the event
-            if (std::abs(actualScroll - scrollDelta) < 0.01f) {
-              scrollConsumed = true;
-            } else {
-              // Calculate remaining scroll delta to propagate
-              scrollDelta -= actualScroll;
+            // Try to scroll each element in the chain horizontally
+            for (size_t i = 0; i < scrollableChain.size() && !scrollConsumed; ++i) {
+              auto& box = scrollableChain[i];
+              if (box->scrollableWidth > 0) {
+                float oldScrollX = box->scrollX;
+                box->scrollX -= scrollDelta;
+                box->clampScroll();
+                float actualScroll = oldScrollX - box->scrollX;
+                if (std::abs(actualScroll - scrollDelta) < 0.01f) {
+                  scrollConsumed = true;
+                } else {
+                  scrollDelta -= actualScroll;
+                }
+              }
             }
-          }
-          
-          // If no element consumed the scroll (or no scrollable elements), scroll the page
-          if (!scrollConsumed) {
-            scrollY -= scrollDelta;
-            if (scrollY < 0) scrollY = 0;
-            if (scrollY > maxScrollY) scrollY = maxScrollY;
+            
+            // If no element consumed the scroll, scroll the page horizontally
+            if (!scrollConsumed) {
+              scrollX -= scrollDelta;
+              if (scrollX < 0) scrollX = 0;
+              if (scrollX > maxScrollX) scrollX = maxScrollX;
+              g_needsLayout = true;  // Trigger relayout for elements scrolling into view
+            }
+          } else {
+            // Vertical scrolling (original behavior)
+            float scrollDelta = e.wheel.y * SCROLL_SPEED;
+            bool scrollConsumed = false;
+            
+            // Try to scroll each element in the chain, propagating overflow
+            for (size_t i = 0; i < scrollableChain.size() && !scrollConsumed; ++i) {
+              auto& box = scrollableChain[i];
+              float oldScrollY = box->scrollY;
+              
+              // Apply scroll delta
+              box->scrollY -= scrollDelta;
+              box->clampScroll();
+              
+              // Calculate how much was actually scrolled
+              float actualScroll = oldScrollY - box->scrollY;
+              
+              // If we scrolled the full amount, consume the event
+              if (std::abs(actualScroll - scrollDelta) < 0.01f) {
+                scrollConsumed = true;
+              } else {
+                // Calculate remaining scroll delta to propagate
+                scrollDelta -= actualScroll;
+              }
+            }
+            
+            // If no element consumed the scroll (or no scrollable elements), scroll the page
+            if (!scrollConsumed) {
+              scrollY -= scrollDelta;
+              if (scrollY < 0) scrollY = 0;
+              if (scrollY > maxScrollY) scrollY = maxScrollY;
+              g_needsLayout = true;  // Trigger relayout for elements scrolling into view
+            }
           }
         }
       } else if (e.type == SDL_TEXTINPUT) {
@@ -2307,6 +2481,10 @@ int main(int argc, char *argv[]) {
           selectedNode->attributes["style"] += e.text.text;
         }
       } else if (e.type == SDL_KEYDOWN) {
+        // Track Shift key state
+        if (e.key.keysym.sym == SDLK_LSHIFT || e.key.keysym.sym == SDLK_RSHIFT) {
+          shiftKeyPressed = true;
+        }
         // Ctrl+R to reload page
         if (e.key.keysym.sym == SDLK_r && (e.key.keysym.mod & KMOD_CTRL)) {
           reloadPage();
@@ -2616,29 +2794,39 @@ int main(int argc, char *argv[]) {
             }
           }
         }
+      } else if (e.type == SDL_KEYUP) {
+        // Track Shift key release
+        if (e.key.keysym.sym == SDLK_LSHIFT || e.key.keysym.sym == SDLK_RSHIFT) {
+          shiftKeyPressed = false;
+        }
       }
     }
 
-    // Live Re-Layout!
-    // Since we modifying DOM attributes directly, we just need to re-run layout
-    renderTree.relayout((float)(screenWidth - INSPECTOR_WIDTH), (float)screenHeight,
-                        styleSheet, &fontManager);
+    // Only relayout when needed (content changes, not every frame)
+    if (g_needsLayout) {
+      renderTree.relayout((float)(screenWidth - INSPECTOR_WIDTH), (float)screenHeight,
+                          styleSheet, &fontManager, scrollY);
+      g_needsLayout = false;
+
+      // Rebuild text boxes list for selection (must be done after layout)
+      textSelection.allTextBoxes.clear();
+      static bool debugOnce = true;
+      collectTextBoxes(renderTree.root, textSelection.allTextBoxes, debugOnce);
+      if (debugOnce) {
+        std::cout << "Total text boxes collected: " << textSelection.allTextBoxes.size() << std::endl;
+        debugOnce = false;
+      }
+    }
 
     // Calculate max scroll based on content height
     if (renderTree.root) {
       float contentHeight = renderTree.root->box.borderBox().height;
+      float maxContentWidth = calculateMaxContentWidth(renderTree.root);
       maxScrollY = std::max(0.0f, contentHeight - (float)screenHeight);
-      // Clamp scrollY if content shrunk
+      maxScrollX = std::max(0.0f, maxContentWidth - (float)(screenWidth - INSPECTOR_WIDTH));
+      // Clamp scroll if content shrunk
       if (scrollY > maxScrollY) scrollY = maxScrollY;
-    }
-
-    // Rebuild text boxes list for selection (must be done after layout)
-    textSelection.allTextBoxes.clear();
-    static bool debugOnce = true;
-    collectTextBoxes(renderTree.root, textSelection.allTextBoxes, debugOnce);
-    if (debugOnce) {
-      std::cout << "Total text boxes collected: " << textSelection.allTextBoxes.size() << std::endl;
-      debugOnce = false;
+      if (scrollX > maxScrollX) scrollX = maxScrollX;
     }
 
     renderer.clear();
@@ -2647,18 +2835,20 @@ int main(int argc, char *argv[]) {
     glEnable(GL_SCISSOR_TEST);
     glScissor(0, 0, screenWidth - INSPECTOR_WIDTH, screenHeight);
 
-    // Apply scroll offset for content rendering
-    renderer.pushTranslate(0, -scrollY);
+    // Apply scroll offset for content rendering (both horizontal and vertical)
+    renderer.pushTranslate(-scrollX, -scrollY);
 
     // Calculate viewport bounds in content space (accounting for scroll)
     float viewportTop = scrollY;
     float viewportBottom = scrollY + screenHeight;
+    float viewportLeft = scrollX;
+    float viewportRight = scrollX + (screenWidth - INSPECTOR_WIDTH);
 
     // Paint content with scroll and culling
     paint(renderer, renderTree.root, fontManager, styleSheet, viewportTop, viewportBottom);
 
     // Remove scroll offset
-    renderer.popTranslate(0, -scrollY);
+    renderer.popTranslate(-scrollX, -scrollY);
 
     // Disable clipping before drawing inspector
     glDisable(GL_SCISSOR_TEST);
@@ -2676,6 +2866,20 @@ int main(int argc, char *argv[]) {
       
       // Scrollbar thumb
       renderer.drawRect(scrollbarX, scrollbarY, 8, scrollbarHeight, 0.6f, 0.6f, 0.6f, 0.8f);
+    }
+
+    // Draw horizontal scrollbar if content overflows
+    if (maxScrollX > 0) {
+      float viewportWidth = (float)(screenWidth - INSPECTOR_WIDTH);
+      float contentWidth = viewportWidth + maxScrollX;
+      float thumbWidth = (viewportWidth / contentWidth) * viewportWidth;
+      thumbWidth = std::max(thumbWidth, 30.0f);
+      float thumbX = (scrollX / maxScrollX) * (viewportWidth - thumbWidth);
+      float hScrollbarY = (float)(screenHeight - 12);
+      // Track
+      renderer.drawRect(0, hScrollbarY, viewportWidth, 10, 0.9f, 0.9f, 0.9f, 0.5f);
+      // Thumb
+      renderer.drawRect(thumbX, hScrollbarY, thumbWidth, 10, 0.6f, 0.6f, 0.6f, 0.8f);
     }
 
     // Inspector BG
