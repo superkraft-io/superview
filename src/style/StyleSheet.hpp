@@ -119,6 +119,7 @@ public:
 
     // Flexbox
     std::string flexDirection = "row";
+    std::string flexWrap = "nowrap";  // nowrap, wrap, wrap-reverse
     std::string justifyContent = "flex-start";
     std::string alignItems = "stretch";
     float flexGrow = 0.0f;
@@ -659,6 +660,8 @@ private:
     // Flexbox
     else if (property == "flex-direction") {
       style.flexDirection = CssParser::trim(value);
+    } else if (property == "flex-wrap") {
+      style.flexWrap = CssParser::trim(value);
     } else if (property == "justify-content") {
       style.justifyContent = CssParser::trim(value);
     } else if (property == "align-items") {

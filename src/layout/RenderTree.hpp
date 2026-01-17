@@ -315,9 +315,22 @@ public:
           computedStyle.color = parentBox->computedStyle.color;
         }
         
-        // Note: font-family, text-align, line-height inheritance is complex
-        // because we need to know if a CSS rule explicitly set the value
-        // For now, only text nodes inherit these properties (handled above)
+        // Inherit text-align, font-family, line-height from parent
+        // unless explicitly set via inline style
+        bool textAlignExplicitlySet = inlineStyle.find("text-align") != std::string::npos;
+        if (!textAlignExplicitlySet) {
+          computedStyle.textAlign = parentBox->computedStyle.textAlign;
+        }
+        
+        bool fontFamilyExplicitlySet = inlineStyle.find("font-family") != std::string::npos;
+        if (!fontFamilyExplicitlySet) {
+          computedStyle.fontFamily = parentBox->computedStyle.fontFamily;
+        }
+        
+        bool lineHeightExplicitlySet = inlineStyle.find("line-height") != std::string::npos;
+        if (!lineHeightExplicitlySet) {
+          computedStyle.lineHeight = parentBox->computedStyle.lineHeight;
+        }
       }
     }
     
@@ -734,14 +747,31 @@ private:
       }
     }
 
-    float totalWidth = 0;
-    for (auto &child : children) {
-      totalWidth += child->measureIntrinsicWidth(font, fontSize);
-    }
-
+    // For block elements, use max width of children (they stack vertically)
+    // For inline elements, sum widths (they flow horizontally)
     auto &style = computedStyle;
+    bool isBlockElement = (style.display == DisplayType::Block || 
+                          style.display == DisplayType::Flex ||
+                          style.display == DisplayType::TableRow ||
+                          style.display == DisplayType::Table);
+    
     float padding = style.getPaddingLeft() + style.getPaddingRight();
-    return totalWidth + padding;
+    
+    if (isBlockElement) {
+      // Block elements: width is max of children (they stack vertically)
+      float maxWidth = 0;
+      for (auto &child : children) {
+        maxWidth = std::max(maxWidth, child->measureIntrinsicWidth(font, fontSize));
+      }
+      return maxWidth + padding;
+    } else {
+      // Inline/inline-block elements: sum widths (they flow horizontally)
+      float totalWidth = 0;
+      for (auto &child : children) {
+        totalWidth += child->measureIntrinsicWidth(font, fontSize);
+      }
+      return totalWidth + padding;
+    }
   }
 
   // Measure intrinsic width for tables by calculating column widths
@@ -1201,11 +1231,19 @@ private:
           currentLineText.pop_back();
         }
         if (!currentLineText.empty()) {
+          float lineWidth = font->getTextWidth(currentLineText, fontSize);
+          float lineX = lineStartX;  // Default to where text started
+          // Apply text-align centering if needed
+          if (style.textAlign == TextAlign::Center) {
+            lineX = x + (width - lineWidth) / 2.0f;
+          } else if (style.textAlign == TextAlign::Right) {
+            lineX = x + width - lineWidth;
+          }
           TextLine line;
           line.text = currentLineText;
-          line.x = lineStartX;
+          line.x = lineX;
           line.y = currentY;
-          line.width = font->getTextWidth(currentLineText, fontSize);
+          line.width = lineWidth;
           line.height = textLineHeight;
           child->textLines.push_back(line);
         }
@@ -1233,11 +1271,19 @@ private:
       currentLineText.pop_back();
     }
     if (!currentLineText.empty()) {
+      float lineWidth = font->getTextWidth(currentLineText, fontSize);
+      float lineX = lineStartX;  // Default to where text started
+      // Apply text-align centering if needed
+      if (style.textAlign == TextAlign::Center) {
+        lineX = x + (width - lineWidth) / 2.0f;
+      } else if (style.textAlign == TextAlign::Right) {
+        lineX = x + width - lineWidth;
+      }
       TextLine line;
       line.text = currentLineText;
-      line.x = lineStartX;
+      line.x = lineX;
       line.y = currentY;
-      line.width = font->getTextWidth(currentLineText, fontSize);
+      line.width = lineWidth;
       line.height = textLineHeight;
       child->textLines.push_back(line);
     }
@@ -1383,6 +1429,18 @@ private:
         // Tokenize and wrap the text, but apply the element's styling
         child->computedStyle = styleSheet.computeStyle(*child->node);
         
+        // Apply text alignment inheritance for inline elements
+        // Check if text-align is explicitly set in inline style
+        bool hasInlineStyle = child->node->type == NodeType::Element && 
+                             child->node->attributes.find("style") != child->node->attributes.end();
+        std::string inlineStyle = hasInlineStyle ? child->node->attributes.at("style") : "";
+        bool textAlignExplicitlySet = inlineStyle.find("text-align") != std::string::npos;
+        
+        if (!textAlignExplicitlySet) {
+          // Inherit text-align from parent (this container)
+          child->computedStyle.textAlign = computedStyle.textAlign;
+        }
+        
         // Only inherit font-size if the element doesn't have its own default size
         // (e.g., <code> has 13px default, should not inherit parent's 16px)
         std::string tag = "";
@@ -1478,7 +1536,13 @@ private:
         child->layout(currentX, currentY, width - (currentX - x), styleSheet, fontManager,
                      viewportWidth, viewportHeight, true);
         
-        Rect childBox = child->box.marginBox();
+        Rect childBox = child->box.borderBox();
+        
+        // For inline elements, reposition to eliminate margin-induced gaps
+        // The margin is already in the box model, we just need to position the border box
+        float marginLeft = child->computedStyle.margin.left.toPx();
+        child->box.content.x = currentX + marginLeft + child->computedStyle.borderWidth.left.toPx() + 
+                               child->computedStyle.padding.left.toPx();
         
         // If child doesn't fit on this line and we've already placed something, wrap
         if (currentX + childBox.width > x + width && currentX > x) {
@@ -1495,7 +1559,12 @@ private:
           // Re-layout child on new line
           child->layout(currentX, currentY, width, styleSheet, fontManager,
                        viewportWidth, viewportHeight, true);
-          childBox = child->box.marginBox();
+          childBox = child->box.borderBox();
+          
+          // Reposition again after wrapping
+          marginLeft = child->computedStyle.margin.left.toPx();
+          child->box.content.x = currentX + marginLeft + child->computedStyle.borderWidth.left.toPx() + 
+                                 child->computedStyle.padding.left.toPx();
         }
         
         currentX += childBox.width;
@@ -1573,6 +1642,18 @@ private:
       } else if (isInlineWithTextOnly(child)) {
         // Inline element with only text content (e.g., <code>, <strong>)
         child->computedStyle = styleSheet.computeStyle(*child->node);
+        
+        // Apply text alignment inheritance for inline elements
+        // Check if text-align is explicitly set in inline style
+        bool hasInlineStyle = child->node->type == NodeType::Element && 
+                             child->node->attributes.find("style") != child->node->attributes.end();
+        std::string inlineStyle = hasInlineStyle ? child->node->attributes.at("style") : "";
+        bool textAlignExplicitlySet = inlineStyle.find("text-align") != std::string::npos;
+        
+        if (!textAlignExplicitlySet) {
+          // Inherit text-align from parent (this container)
+          child->computedStyle.textAlign = computedStyle.textAlign;
+        }
         
         // Only inherit font-size if the element doesn't have its own default size
         // (e.g., <code> has 13px default, should not inherit parent's 16px)
@@ -1668,7 +1749,7 @@ private:
         child->layout(currentX, currentY, width - (currentX - x), styleSheet,
                       fontManager, viewportWidth, viewportHeight, true);
 
-        Rect childBox = child->box.marginBox();
+        Rect childBox = child->box.borderBox();
 
         // Line break if needed
         if (currentX + childBox.width > x + width && currentX > x) {
@@ -1684,7 +1765,7 @@ private:
 
           child->layout(currentX, currentY, width, styleSheet, fontManager,
                         viewportWidth, viewportHeight, true);
-          childBox = child->box.marginBox();
+          childBox = child->box.borderBox();
         }
 
         currentX += childBox.width;
@@ -1707,99 +1788,151 @@ private:
     auto &style = computedStyle;
     bool isRow = (style.flexDirection == "row" ||
                   style.flexDirection == "row-reverse");
+    bool canWrap = (style.flexWrap == "wrap" || style.flexWrap == "wrap-reverse");
     float gap = style.gap;
 
-    // First pass: measure children 
-    // For flex items with flex-grow, use intrinsic minimum width (longest word)
-    // For flex items without flex-grow (flex: 0), use full intrinsic width
-    float totalSize = 0;
+    // First pass: measure intrinsic sizes of all children
+    std::vector<float> intrinsicSizes;
     float totalFlexGrow = 0;
-    std::vector<float> minSizes;
-
+    
     for (auto &child : children) {
-      float minSize = 0;
-
-      // Get font for measuring text
       MSDFFont* font = fontManager->getDefaultFont();
       float fontSize = child->computedStyle.fontSize;
+      float intrinsicSize = 0;
 
       if (isRow) {
-        // If flex-grow > 0, use minimal width (padding + smallest content)
-        // Otherwise use full intrinsic width
         if (child->computedStyle.flexGrow > 0) {
-          // For flex growing items, use just padding for minimum
+          // For flex growing items, use minimal size
           auto &childStyle = child->computedStyle;
           float padding = childStyle.getPaddingLeft() + childStyle.getPaddingRight();
-          minSize = padding;
-          // Add border width
           float border = childStyle.getBorderLeftWidth() + childStyle.getBorderRightWidth();
-          minSize += border;
+          intrinsicSize = padding + border;
         } else {
-          // No flex-grow - use full intrinsic width
-          minSize = child->measureIntrinsicWidth(font, fontSize);
+          intrinsicSize = child->measureIntrinsicWidth(font, fontSize);
+        }
+      } else {
+        intrinsicSize = 0; // Column layout measures during positioning
+      }
+      
+      intrinsicSizes.push_back(intrinsicSize);
+      totalFlexGrow += child->computedStyle.flexGrow;
+    }
+
+    // For wrapping flex containers, we need to organize children into lines
+    struct FlexLine {
+      std::vector<size_t> childIndices;
+      float totalSize = 0;
+      float totalFlexGrow = 0;
+      float crossSize = 0;  // Height for row, width for column
+    };
+    
+    std::vector<FlexLine> lines;
+    
+    if (canWrap && isRow) {
+      // Organize children into lines that fit within width
+      FlexLine currentLine;
+      float lineSize = 0;
+      
+      for (size_t i = 0; i < children.size(); i++) {
+        float childSize = intrinsicSizes[i];
+        float sizeWithGap = childSize + (currentLine.childIndices.empty() ? 0 : gap);
+        
+        // Check if child fits on current line
+        if (!currentLine.childIndices.empty() && lineSize + sizeWithGap > width) {
+          // Start a new line
+          currentLine.totalSize = lineSize;
+          lines.push_back(currentLine);
+          currentLine = FlexLine{};
+          lineSize = 0;
+          sizeWithGap = childSize;  // No gap at start of new line
         }
         
-        minSizes.push_back(minSize);
-        totalSize += minSize + gap;
-        totalFlexGrow += child->computedStyle.flexGrow;
-      } else {
-        // For column, we'll measure height during layout
-        minSizes.push_back(0);
-        totalFlexGrow += child->computedStyle.flexGrow;
+        currentLine.childIndices.push_back(i);
+        currentLine.totalFlexGrow += children[i]->computedStyle.flexGrow;
+        lineSize += sizeWithGap;
       }
-    }
-
-    if (!children.empty()) {
-      totalSize -= gap; // Remove last gap
-    }
-
-    // Calculate free space for flex distribution
-    float freeSpace = (isRow ? width : 0) - totalSize;
-    if (freeSpace < 0)
-      freeSpace = 0;
-
-    // Second pass: position children with flex distribution
-    float currentPos = 0;
-    float maxCrossSize = 0;
-
-    // Handle justify-content
-    if (style.justifyContent == "center") {
-      currentPos = freeSpace / 2;
-    } else if (style.justifyContent == "flex-end") {
-      currentPos = freeSpace;
-    } else if (style.justifyContent == "space-between" &&
-               children.size() > 1) {
-      gap = freeSpace / (children.size() - 1);
-    } else if (style.justifyContent == "space-around" && !children.empty()) {
-      float spacing = freeSpace / children.size();
-      currentPos = spacing / 2;
-      gap += spacing;
-    }
-
-    for (size_t i = 0; i < children.size(); i++) {
-      auto &child = children[i];
       
-      // Distribute free space based on flex-grow
-      float extraSize = 0;
-      if (totalFlexGrow > 0) {
-        extraSize = (freeSpace * child->computedStyle.flexGrow) / totalFlexGrow;
+      // Add last line
+      if (!currentLine.childIndices.empty()) {
+        currentLine.totalSize = lineSize;
+        lines.push_back(currentLine);
       }
+    } else {
+      // No wrapping - single line with all children
+      FlexLine singleLine;
+      float totalSize = 0;
+      for (size_t i = 0; i < children.size(); i++) {
+        singleLine.childIndices.push_back(i);
+        totalSize += intrinsicSizes[i] + (i > 0 ? gap : 0);
+      }
+      singleLine.totalSize = totalSize;
+      singleLine.totalFlexGrow = totalFlexGrow;
+      lines.push_back(singleLine);
+    }
 
+    // Layout each line
+    float currentY_line = y;
+    float maxWidth = 0;
+    
+    for (auto &line : lines) {
+      float freeSpace = width - line.totalSize;
+      if (freeSpace < 0) freeSpace = 0;
+      
+      float currentPos = 0;
+      float maxCrossSize = 0;
+      
+      // Handle justify-content for this line
+      if (style.justifyContent == "center") {
+        currentPos = freeSpace / 2;
+      } else if (style.justifyContent == "flex-end") {
+        currentPos = freeSpace;
+      } else if (style.justifyContent == "space-between" && line.childIndices.size() > 1) {
+        gap = freeSpace / (line.childIndices.size() - 1);
+      } else if (style.justifyContent == "space-around" && !line.childIndices.empty()) {
+        float spacing = freeSpace / line.childIndices.size();
+        currentPos = spacing / 2;
+        gap = style.gap + spacing;
+      }
+      
+      for (size_t idx : line.childIndices) {
+        auto &child = children[idx];
+        
+        // Distribute free space based on flex-grow within this line
+        float extraSize = 0;
+        if (line.totalFlexGrow > 0) {
+          extraSize = (freeSpace * child->computedStyle.flexGrow) / line.totalFlexGrow;
+        }
+        
+        if (isRow) {
+          float childWidth = intrinsicSizes[idx] + extraSize;
+          child->layout(x + currentPos, currentY_line, childWidth, styleSheet, fontManager,
+                        viewportWidth, viewportHeight);
+          currentPos += child->frame.width + gap;
+          maxCrossSize = std::max(maxCrossSize, child->frame.height);
+        } else {
+          child->layout(x, currentY_line + currentPos, width, styleSheet, fontManager,
+                        viewportWidth, viewportHeight);
+          currentPos += child->frame.height + gap;
+          maxCrossSize = std::max(maxCrossSize, child->frame.width);
+        }
+      }
+      
+      line.crossSize = maxCrossSize;
+      
       if (isRow) {
-        float childWidth = minSizes[i] + extraSize;
-        child->layout(x + currentPos, y, childWidth, styleSheet, fontManager,
-                      viewportWidth, viewportHeight);
-        currentPos += child->frame.width + gap;
-        maxCrossSize = std::max(maxCrossSize, child->frame.height);
-      } else {
-        child->layout(x, y + currentPos, width, styleSheet, fontManager, viewportWidth,
-                      viewportHeight);
-        currentPos += child->frame.height + gap;
-        maxCrossSize = std::max(maxCrossSize, child->frame.width);
+        currentY_line += maxCrossSize + gap;
+        maxWidth = std::max(maxWidth, currentPos - gap);
       }
     }
 
-    return isRow ? maxCrossSize : currentPos;
+    // Return total height for row direction, or total width for column
+    if (isRow) {
+      float totalHeight = currentY_line - y;
+      if (!lines.empty()) totalHeight -= gap;  // Remove trailing gap
+      return totalHeight;
+    } else {
+      return lines.empty() ? 0 : lines[0].crossSize;
+    }
   }
 
   // Table layout algorithm

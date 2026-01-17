@@ -363,6 +363,7 @@ legend {
 img {
     display: inline-block;
     vertical-align: bottom;  /* Chrome aligns images at the bottom of the line box */
+    margin: 0;  /* No margins for tight packing */
 }
 
 iframe {

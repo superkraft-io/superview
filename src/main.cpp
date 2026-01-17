@@ -1685,6 +1685,67 @@ void paint(skene::Renderer &renderer, std::shared_ptr<skene::RenderBox> box,
   renderer.setOpacity(1.0f);
 }
 
+// Reload function for Ctrl+R
+void reloadPage() {
+  if (!g_renderTree || !g_styleSheet || !g_fontManager || !g_dom) return;
+  
+  // Save current scroll position before reloading
+  float savedScrollY = scrollY;
+  
+  std::string filename = "index.html";
+  std::string html;
+  
+  std::ifstream htmlFile(filename);
+  if (htmlFile) {
+    std::stringstream buffer;
+    buffer << htmlFile.rdbuf();
+    html = buffer.str();
+    std::cout << "Reloading: " << filename << std::endl;
+  } else {
+    std::cerr << "Error: Could not reload " << filename << std::endl;
+    return;
+  }
+  
+  // Parse HTML
+  skene::HtmlParser parser;
+  auto parseResult = parser.parseWithStyles(html);
+  g_dom = parseResult.document;
+  
+  // Reset stylesheet
+  g_styleSheet->rules.clear();
+  
+  // Load user agent stylesheet
+  std::ifstream uaFile("src/style/userAgent.css");
+  if (uaFile) {
+    std::stringstream uaBuffer;
+    uaBuffer << uaFile.rdbuf();
+    g_styleSheet->loadUserAgentStylesheet(uaBuffer.str());
+  }
+  
+  // Load CSS from <style> tags
+  for (const auto& cssContent : parseResult.styleContents) {
+    g_styleSheet->addStylesheet(cssContent);
+  }
+  
+  // Rebuild layout
+  g_renderTree->buildAndLayout(g_dom, (float)(screenWidth - INSPECTOR_WIDTH),
+                              *g_styleSheet, g_fontManager);
+  
+  // Reset text selection
+  textSelection.allTextBoxes.clear();
+  textSelection.hasSelection = false;
+  selectedNode = nullptr;
+  
+  // Restore scroll position (clamped to new max scroll)
+  scrollY = savedScrollY;
+  if (scrollY < 0) scrollY = 0;
+  if (scrollY > maxScrollY) scrollY = maxScrollY;
+  
+  std::cout << "Scroll restored to: " << scrollY << " (max: " << maxScrollY << ")" << std::endl;
+  
+  g_needsRender = true;
+}
+
 // Render function that can be called during resize
 void doRender() {
   if (!g_renderer || !g_renderTree || !g_styleSheet || !g_fontManager || !g_window) return;
@@ -2246,6 +2307,10 @@ int main(int argc, char *argv[]) {
           selectedNode->attributes["style"] += e.text.text;
         }
       } else if (e.type == SDL_KEYDOWN) {
+        // Ctrl+R to reload page
+        if (e.key.keysym.sym == SDLK_r && (e.key.keysym.mod & KMOD_CTRL)) {
+          reloadPage();
+        }
         if (e.key.keysym.sym == SDLK_BACKSPACE && selectedNode) {
           std::string &style = selectedNode->attributes["style"];
           if (!style.empty()) {
